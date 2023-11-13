@@ -299,7 +299,7 @@ function testOnline()
   initTab.LOGS.LOG_LEVEL = "trace"
   initTab.LOGS.LOG_TYPE = "online"
   initTab.LOGS.LOG_SIZE = 1000
-  initTab.LOGS.URL_PAPERTRAIL = "http://logs2.papertrailapp.com:21645"
+  initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL
 
   initTab.SECTION = {}
   initTab.SECTION.password = "123456"
@@ -338,7 +338,7 @@ function testOnlineFastlogs()
   initTab.LOGS.LOG_LEVEL = "trace"
   initTab.LOGS.LOG_TYPE = "online"
   initTab.LOGS.LOG_SIZE = 1000
-  initTab.LOGS.URL_PAPERTRAIL = "http://logs2.papertrailapp.com:21645"
+  initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL
 
   initTab.SECTION = {}
   initTab.SECTION.password = "123456"
@@ -388,7 +388,7 @@ function testOfflineSize()
   initTab.LOGS.LOG_LEVEL = "trace"
   initTab.LOGS.LOG_TYPE = "offline"
   initTab.LOGS.LOG_SIZE = 30
-  initTab.LOGS.URL_PAPERTRAIL = "http://logs2.papertrailapp.com:21645"
+  initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL
 
   initTab.SECTION = {}
   initTab.SECTION.password = "123456"
@@ -432,7 +432,7 @@ function testOfflineFastlogs()
   initTab.LOGS.LOG_LEVEL = "trace"
   initTab.LOGS.LOG_TYPE = "offline"
   initTab.LOGS.LOG_SIZE = 30
-  initTab.LOGS.URL_PAPERTRAIL = "http://logs2.papertrailapp.com:21645"
+  initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL
 
   readIni()
 
