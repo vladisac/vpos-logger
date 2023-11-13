@@ -14,4 +14,4 @@ vpos-logger
     * section 1. GLOBAL DEFAULTS should be added to your script.vsp and when needed in script.ini section [LOGS]
     * section 2. LOGGER DEFINITION, should be added to script.vsp
     * section 3. INITIALIZATION PROCEDURE, shoud be added in your function (eg. readINI() ) that reads the script.ini settings, this will initializaze the logger object with the desired LOG_LEVEL.
-  3.after the initilization procedure you can call log.info("some log") log.warn("some log") log.debug("some log") log.trace("some log") anywhere in your code.
+  3. after the initilization procedure you can call log.info("some log") log.warn("some log") log.debug("some log") log.trace("some log") anywhere in your code.
