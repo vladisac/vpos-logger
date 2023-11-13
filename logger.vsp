@@ -1,0 +1,514 @@
+--!ScriptAPI: 1.14
+--!ScriptVersion: 1.8
+-- Script name: logger.vsp
+-- Author: Vlad Isac
+-- Date: 03/2020
+-- Description: use metadata and queue for sending log messages to url (eg http://logs6.papertrailapp.com:17732 )
+
+assert = function(...) end
+
+---
+-- Count the number of fallbacks to file
+-- @global offlineCounter
+offlineCounter = 0
+
+
+---
+-- Function to generate a date following format as per ISO 8601: rrrr-mm-ddThh:mm:ss±hh:mm
+-- Length: 25 characters.
+-- Example - daylight saving time:2016-11-09T04:25:28+01:00
+-- @tparam datetime date to be formated
+-- @treturn string date formated as per ISO 8601: rrrr-mm-ddThh:mm:ss±hh:mm
+local function dateISO(date)
+  local date = date or vpos.datetime.DateTime ()
+  local day, month, year = date:getDate ()
+  local hour, minute, second = date:getTime ()
+
+
+  local function IsDST(day, month, year)
+
+      --January, february, november and december are out.
+      if month < 3 or month > 10 then return 0 end
+      --April to October are in
+      if month > 3 and month < 10 then return 1 end
+
+      marchSunday = math.ceil(31 - ((((5 * year) / 4) + 4) % 7))
+      octoberSunday = math.ceil(31 - ((((5 * year) / 4) + 1) % 7))
+
+      --In march, we are DST if our previous sunday was on or after the 8th.
+      if month == 3 then if day >= marchSunday then return 1 else return 0 end end
+      --In november we must be before the first sunday to be dst.
+      --That means the previous sunday must be before the 1st.
+      if day < octoberSunday then return 1 else return 0 end
+  end
+
+  local offset = 1 + IsDST(day, month, year)
+  return tostring(year).."-"..string.format("%02d", month).."-"..string.format("%02d", day).."T"..
+          string.format("%02d", hour)..":"..string.format("%02d", minute)..":"..string.format("%02d",second)
+
+end
+
+--******************* METADATA FUNCTIONS ***********************
+
+---
+-- Read from metadata.
+-- @treturn Nil if metadata is empty
+-- @treturn table
+function readMD()
+  local metaTab = vpos.script.currentScript():getMetaData()
+  if not metaTab or not next(metaTab) then
+    return nil
+  else
+    return metaTab.key
+  end
+end
+
+---
+-- Write to metadata.
+-- @tparam table queue
+function writeMD(q, key)
+  if not q or not next(q) then return end
+  key = key or "key"
+  local metaTab = { key=q }
+  local status = vpos.script.currentScript():setMetaData(metaTab)
+end
+
+
+
+--******************* END METADATA FUNCTIONS *******************
+
+
+---
+-- Get queue size.
+-- @tparam table queue
+-- @treturn number
+function queueSize(q)
+  return math.abs(q.first) - math.abs(q.last) + 1
+end
+
+
+---
+-- Check if queue is empty.
+-- @tparam table queue
+-- @treturn boolean
+function isQueueEmpty(q)
+  if not q.first or not q.last then return true end
+  if q.first > q.last then return true else return false end
+end
+
+
+---
+-- Erase all the elements from a queue.
+-- @tparam table queue
+function eraseQueue(q)
+  for i in pairs(q) do
+    q[i] = nil
+  end
+  q.first = 0
+  q.last = -1
+end
+
+---
+-- Erase log queue and save it to MetaData
+function clearMD()
+  eraseQueue(logList)
+  writeMD(logList)
+end
+
+---
+-- Dump the queue to file
+-- @tparam table queue
+function dumpQueue(q)
+  -- dump all to file logger.log
+  local f = getLogFile("logger.vsp", 500)
+  local message = ""
+  local size = 0
+  local count = 0
+  q.first = nil
+  q.last = nil
+  for k,v in pairs(q) do
+      message = message..v.scriptName.." " .. v.datetime .. " " .. v.message .. "\n"
+      size = size + #message
+      if size > 5000 then
+        f.fh:write(message)
+        f.fh:flush()
+        count = count + size
+        message = ""
+        size = 0
+      end
+  end
+  f.fh:close()
+
+  return count
+end
+
+---
+-- Initialize queue as an empty queue or with
+-- data from metadata.
+-- @tparam boolean metaInit
+-- @treturn table
+-- @see readMD
+-- @see isQueueEmpty
+function queueInit()
+  local ok, initMetaData = pcall(readMD)
+  assert(ok, initMetaData)
+  if ok and initMetaData and not isQueueEmpty(initMetaData) then
+    return initMetaData
+  else
+    return {first = 0, last = -1}
+  end
+end
+
+
+---
+-- Get the element from the head of the queue.
+-- This function is used to completely remove the element
+-- or reuse it to enqueue.
+-- @tparam table queue
+-- @tparam boolean use
+-- @treturn table when use is true
+function dropHeadElem(q, use)
+  local last = q.last
+  local unfit = q[last]
+  q[last] = nil
+  q.last = last - 1
+  if use then return unfit end
+end
+
+
+-- There are two aspects this does not handle:
+-- * metatables
+-- * recursive tables
+function copy(obj)
+  if type(obj) ~= 'table' then return obj end
+  local res = {}
+  for k, v in pairs(obj) do res[copy(k)] = copy(v) end
+  return res
+end
+
+
+---
+---
+-- Enqueue.
+-- @tparam table queue
+-- @tparam table value
+function ListPushLeft(value)
+  if not value then return end
+  local first = (logList and logList.first or 0) - 1
+  value.datetime = value.datetime or dateISO()
+  value.priority = value.priority or "22"
+  logList.first = first
+  logList[first] = copy(value)
+  -- save the new queue to metadata
+  writeMD(logList)
+end
+
+
+---
+-- Get(read) the element from the head of the list.
+-- @tparam table queue
+-- @treturn table
+-- @treturn table
+function ListGetRight(q)
+  local last = q.last
+  return q[last]
+end
+
+
+---
+-- Dequeue.
+-- @tparam table queue
+function ListPopRight(q)
+  local last = q.last
+  q[last] = nil
+  q.last = last - 1
+end
+
+---
+-- Function to show the status of the fiscal printer
+-- @tparam string msg message to be shown as status
+-- @tparam number subNumber the ID of the view where the status is shown
+local function showStatus(msg, subNumber)
+  local wndSubNum = subNumber or 69
+  local gestoInfo = vpos.view.LayoutWindow(wndSubNum)
+  gestoInfo:setText(msg)
+end
+
+
+---
+-- Send the logs and update the queue and metadata
+-- @tparam table logList table containing the logs
+function sendFromQueue(q)
+  local ok, message = pcall(ListGetRight, q)
+  assert(ok, message)
+  message.qLast = q.last
+  message.qFirst = q.first
+  if ok then
+    local ok, err = pcall(sendMessage, message)
+    assert(ok, err)
+    if ok then
+      local ok, err = pcall(ListPopRight, q)
+      assert(ok, err)
+      if ok then
+        writeMD(q)
+      else
+        ListPushLeft({scriptName="logger.vsp",
+              url="logs6.papertrailapp.com:17732",
+              logType="online",
+              logSize=300,
+              priority="11",
+              messageLevel="error",
+              message= err})
+      end
+    else
+      ListPushLeft({scriptName="logger.vsp",
+              url="logs6.papertrailapp.com:17732",
+              logType="online",
+              logSize=300,
+              priority="11",
+              messageLevel="error",
+              message= err})
+    end
+  end
+end
+
+
+---
+-- Manage the queue
+-- @tparam table logList table containing the logs
+function handleQueue(q)
+  if not isQueueEmpty(q) then
+    local qSize = queueSize(q)
+    --showStatus("Q:"..tostring(qSize))
+    if qSize > 150 then
+      local ok, resp = pcall(dumpQueue, q)
+      assert(ok, resp)
+      --initialse empty queue
+      eraseQueue(q)
+
+      ListPushLeft({scriptName="logger.vsp",
+              url="logs6.papertrailapp.com:17732",
+              logType="online",
+              logSize=300,
+              priority="11",
+              messageLevel="error",
+              message= "QUEUE WAS ERASED:"..tostring(resp)})
+      ok, resp = pcall(writeMD, q)
+      assert(ok, resp)
+    else
+      local limit
+      if qSize > 10 then limit = 10 else limit = qSize end
+      for i=1,limit do
+
+        local ok, resp = pcall(sendFromQueue, q)
+        assert(ok, resp)
+        if not ok then
+          ListPushLeft({scriptName="logger.vsp",
+                url="logs6.papertrailapp.com:17732",
+                logType="online",
+                logSize=300,
+                priority="11",
+                messageLevel="error",
+                message= resp})
+        end
+      end
+    end
+  end
+end
+
+
+---
+-- Initialise the queue from MetaData if possible
+function scriptInit()
+  ok, logList = pcall(queueInit)
+  assert(ok, logList)
+  if not ok then
+    ok, logList = pcall(queueInit)
+    assert(ok, logList)
+    writeMD()
+  end
+end
+
+
+---
+-- Checks for existance of a file
+-- @tparam string fn file to be checked
+-- @treturn bool true if exists
+function file_exists(fn, host)
+  if not fn then return false end
+  allowedHosts = {["VPOS"] = 1, ["FILE"] = 1, ["MEDIAFILE"] = 1}
+
+  local i, j = string.find(fn, ":")
+  local fileHost
+  if i then
+    fileHost = fn:sub(1,j-1)
+    fn = fn:gsub("VPOS:", "")
+    fn = fn:gsub("FILE:", "")
+  end
+
+  host = host or fileHost or "VPOS"
+  if not allowedHosts[host] then return false end
+
+  local scripts = vpos.file.getFileList(host)
+  for _,s in pairs(scripts) do
+    if fn == s then
+      return true
+    end
+  end
+  return false
+end
+
+
+---
+-- Function that moves/renames a file
+-- @tparam string fn1 source filename
+-- @tparam string fn2 destination filename
+-- @tparam boolean overwrite flag to overwrite existing destination file
+function file_rename(fn1, fn2, overwrite)
+
+  if not file_exists(fn1) then return nil, string.format("Source file %s is missing!", fn1) end
+  if file_exists(fn2) and not overwrite then return nil, string.format("Destination file %s already exists!", fn2) end
+
+  ok, err = vpos.renameFile(fn1, fn2)
+  -- if the error is DestinationFileExists and we have to overwrite
+  if not ok and err == 1 and overwrite then
+    ok, err = vpos.file.delete(fn2)
+    ok, err = vpos.renameFile(fn1, fn2)
+    return ok, err
+  end
+  return ok, err
+end
+
+
+---
+-- Function which creates a log file having the name of the script and extension ".log"
+-- @tparam string scriptName name of the script
+-- @treturn table containing the file handler and a function to get the updated log size
+function getLogFile(scriptName, logSizeInKB)
+  local fileSize = logSizeInKB or 300
+  local _,_, scriptFileName, scriptFileExtension = string.find(scriptName, "(.+)%.(%a+)")
+  local fileName = tostring(scriptFileName or "log") .. ".log"
+  local logSize = function()
+                    if vpos.script.Script(fileName) then
+                      return tonumber(vpos.script.Script(fileName):getSize())/1000 or 0
+                    else
+                      return 0
+                    end
+                  end
+  if logSize() < fileSize then
+    fh, errMsg = io.open("VPOS:"..fileName, "a+")
+    assert(fh, errMsg)
+  else
+    local backupFile = fileName:sub(1, -5) .. ".1.log"
+    ok, err, e = pcall(file_rename, "VPOS:"..fileName, "VPOS:"..backupFile, true)
+    assert(ok, err)
+    if not err then ok, err = vpos.file.delete("VPOS:"..fileName) end
+    fh, errMsg = io.open("VPOS:"..fileName, "w")
+    assert(fh, errMsg)
+  end
+
+  if not fh then
+    local backupFile = fileName:sub(1, -5) .. ".1.log"
+    ok, err, e = pcall(file_rename, "VPOS:"..fileName, "VPOS:"..backupFile, true)
+    assert(ok, err)
+    if not err then ok, err = vpos.file.delete("VPOS:"..fileName) end
+    fh, errMsg = io.open("VPOS:"..fileName, "w")
+    assert(fh, errMsg)
+  end
+
+  return {fh = fh, size = logSize, scriptFileName = scriptFileName}
+end
+
+
+---
+-- Format the message by adding information about the script and POS terminal
+-- @tparam table message containing the needed information
+-- @tparam bool fallback true if called due to fallback
+-- @treturn string outStr log message to send
+function formatMessage(message, fallback)
+  local outStr = ""
+
+  if message.logType == "online" and not fallback then
+    local scriptVersion = tostring(vpos.tables.Table(806):getData(message.scriptName, 15) or 0)
+    local scriptData = string.format("%s_v:%s", message.scriptName, scriptVersion)
+    local trace = message.messageLevel == "trace" and "[trace] " or ""
+
+    outStr = "<"..message.priority..">1 "..message.datetime.." ".. COMP_NAME .. POSNAME ..
+            " " .. scriptData .." - - - ".. trace   .. message.qFirst..":" .. message.qLast .." ".. message.message .. "\n"
+  else
+    outStr = message.datetime .. " [" .. message.messageLevel .. "] >> ".. message.qFirst..":" .. message.qLast .." " .. message.message .. "\n"
+  end
+
+  return outStr
+end
+
+-- Sends the message using sockets
+-- If sending over the internet fails, write the message to a file
+-- @tparam table message containing the needed information
+function sendMessage(message)
+  local ok, outStr = pcall(formatMessage, message)
+  assert(ok, outStr)
+  local _,_, scriptFN = string.find(message.scriptName, "(.+)%.(%a+)")
+
+  if not ok then
+    outStr = "<11>1 "..dateISO().." "..COMP_NAME..POSNAME.." logger.vsp - - - ________PCALL error:"..tostring(outStr).."\n"
+  end
+
+  if message.logType == "online" and message.url then
+    logURL = message.url
+    logURL = logURL:gsub("http://", "")
+    _, _, logURL, logPORT = logURL:find("(.-):(%d+)")
+    -- retry to create the socket only after several logs were locally written
+    if (not socket and (offlineCounter == 0 or offlineCounter >= 9)) or offlineCounter >= 9 then
+      socket = vpos.communication.Socket(logURL, logPORT, 3000)
+      offlineCounter = 0
+    end
+
+    local sent = socket and socket:write(outStr)
+    if not sent then
+      offlineCounter = offlineCounter + 1
+
+      -- fallback to file
+      ok, outStr = pcall(formatMessage, message, true)
+      assert(ok, outStr)
+      if not file or file.size() >= message.logSize or scriptFN ~= file.scriptFileName then
+        file = getLogFile(message.scriptName, message.logSize)
+      end
+      file.fh:write(outStr)
+      file.fh:flush()
+    end
+  else
+    -- fallback to file
+    if not file or file.size() >= message.logSize or scriptFN ~= file.scriptFileName then
+      file = getLogFile(message.scriptName, message.logSize)
+    end
+    file.fh:write(outStr)
+    file.fh:flush()
+  end
+
+end
+
+
+---
+-- Timer calling `handleQueue` for sending the log to papertrail
+function logTimer()
+  local ok, err = pcall(handleQueue, logList)
+  assert(ok, err)
+end
+
+-- format the company name
+COMP_NAME = string.lower(vpos.systeminfo.Company():getName())
+COMP_NAME = COMP_NAME:gsub("sc", ""):gsub(" ", "")
+COMP_NAME = COMP_NAME:sub(1, 4) .. "_"
+POSNAME = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
+
+vpos.script.registerAsInterScript()
+
+scriptInit()
+
+
+vpos.events.registerTimerFunction("logTimer", 300)
+
+---
+-- @entrypoint ClearMetadata
+vpos.events.registerEntryPointFunction(99, "clearMD")

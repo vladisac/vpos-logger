@@ -1,0 +1,493 @@
+--!ScriptAPI: 1.14
+--!ScriptVersion: 1.8
+------------------------------------------------------------------------------
+-------------------- GLOBAL DEFAULTS, add to top of you and .ini file --------
+------------------------------------------------------------------------------
+
+---
+-- Debug level
+-- @global LOG_LEVEL
+LOG_LEVEL = "info"
+
+---
+-- Size of the log file in bytes
+-- @global LOG_SIZE
+LOG_SIZE = 300
+
+---
+-- Switch to online or offline/local logs
+-- @global LOG_TYPE
+LOG_TYPE = "online"
+
+---
+-- URL where logs are shown on papertrail
+-- @global URL_PAPERTRAIL
+URL_PAPERTRAIL = "http://logs2.papertrailapp.com:21645"
+
+--------------------------------------------------------------------------
+-------------------- logger definition, add to functions -----------------
+--------------------------------------------------------------------------
+
+local logLevel = {
+  Error = "error",
+  Warn = "warn",
+  Info = "info",
+  Debug = "debug",
+  Trace = "trace"
+}
+
+local function dateISO(date)
+  local date = date or vpos.datetime.DateTime ()
+  local day, month, year = date:getDate ()
+  local hour, minute, second = date:getTime ()
+
+
+  local function IsDST(day, month, year)
+
+      --January, february, november and december are out.
+      if month < 3 or month > 10 then return 0 end
+      --April to October are in
+      if month > 3 and month < 10 then return 1 end
+
+      marchSunday = math.ceil(31 - ((((5 * year) / 4) + 4) % 7))
+      octoberSunday = math.ceil(31 - ((((5 * year) / 4) + 1) % 7))
+
+      --In march, we are DST if our previous sunday was on or after the 8th.
+      if month == 3 then if day >= marchSunday then return 1 else return 0 end end
+      --In november we must be before the first sunday to be dst.
+      --That means the previous sunday must be before the 1st.
+      if day < octoberSunday then return 1 else return 0 end
+  end
+
+  local offset = 1 + IsDST(day, month, year)
+  return tostring(year).."-"..string.format("%02d", month).."-"..string.format("%02d", day).."T"..
+          string.format("%02d", hour)..":"..string.format("%02d", minute)..":"..string.format("%02d",second)
+
+end
+
+---
+-- Checks for existance of a file
+-- @tparam string fn file to be checked
+-- @treturn bool true if exists
+function file_exists(fn, host)
+  if not fn then return false end
+  allowedHosts = {["VPOS"] = 1, ["FILE"] = 1, ["MEDIAFILE"] = 1}
+
+  local i, j = string.find(fn, ":")
+  local fileHost
+  if i then
+    fileHost = fn:sub(1,j-1)
+    fn = fn:gsub("VPOS:", "")
+    fn = fn:gsub("FILE:", "")
+  end
+
+  host = host or fileHost or "VPOS"
+  if not allowedHosts[host] then return false end
+
+  local scripts = vpos.file.getFileList(host)
+  for _,s in pairs(scripts) do
+    if fn == s then
+      return true
+    end
+  end
+  return false
+end
+
+
+function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptUpdate, vposName)
+  -- create a new instance
+  local self = {
+    message = ""
+  }
+
+  -- private fields
+  local logTab =  {
+                    level = level or "Info",
+                    logType = logType or "online",
+                    logSize = logSize or 300,
+                    url = url or "http://logs2.papertrailapp.com:21645",
+                    scriptName = scriptName or " ",
+                    scriptVersion = scriptVersion or "0",
+                    scriptUpdate = scriptUpdate or " ",
+                    vposName = vposName or ""
+                  }
+
+  local function logData(message, full)
+    -- add the message to queue
+    message.datetime = dateISO()
+    if not full then
+      message.message = message.message:sub(1, LOG_TRUNCATE_SIZE)
+    else
+      message.message = message.message
+    end
+
+    vpos.script.callInterScriptFunctionExt("VPOS:logger.vsp", "ListPushLeft", {async = true}, message)
+  end
+
+  -- send data about the script
+  function self.scriptInfo(settings)
+    logTab.messageLevel = "info"
+    logTab.message = string.format("====== START ======== script:%s __ version:%s __ update:%s __ pv:%s __ serialNo:%s __ ip:%s",
+                                    logTab.scriptName, logTab.scriptVersion, logTab.scriptUpdate,
+                                    vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion),
+                                    vpos.getSystemInfo(vpos.SystemInfo.Serial),
+                                    vpos.getSystemInfo(vpos.SystemInfo.NetworkAddress))
+    logTab.priority = 14
+
+    logData(logTab)
+
+    if settings then
+      logTab.message = settings
+      logData(logTab, true)
+    end
+  end
+
+  -- used for 'Trace' log level
+  function self.trace(message, full)
+    if level == logLevel.Trace then
+      local now = vpos.datetime.DateTime():getUnixTime() or ""
+      logTab.message = now .. "@ " .. (message or "")
+      logTab.messageLevel = "trace"
+      logTab.priority = 15
+      logData(logTab, full)
+    end
+  end
+
+
+  -- used for 'Debug' log level
+  function self.debug(message, full)
+    if level == logLevel.Trace or level == logLevel.Debug then
+      logTab.message = message or ""
+      logTab.messageLevel = "debug"
+      logTab.priority = 15
+      logData(logTab, full)
+    end
+  end
+
+  -- used for 'Info' log level
+  function self.info(message, full)
+    if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info  then
+      logTab.message = message or ""
+      logTab.messageLevel = "info"
+      logTab.priority = 14
+      logData(logTab, full)
+    end
+  end
+
+  -- used for 'Warn' log level
+  function self.warn(message, full)
+    if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info  or level == logLevel.Warn then
+      logTab.message = message or ""
+      logTab.messageLevel = "warn"
+      logTab.priority = 12
+      logData(logTab, full)
+    end
+  end
+
+  -- used for 'Error' log level
+  function self.error(message)
+    if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info  or level == logLevel.Warn or level == logLevel.Error then
+      local line = tostring(debug.getinfo(2, "l").currentline) or " "
+      logTab.message = string.format("%4s", line) .. ": " .. message or ""
+      logTab.messageLevel = "error"
+      logTab.priority = 11
+      logData(logTab, true)
+    end
+  end
+
+  return self
+end
+
+
+function readIni()
+  -------------------------------------------------------------------------------------------
+  --------------- ADD THIS CODE TO YOUR SCRIPT INITIALIZATION PROCEDURE ---------------------
+  -------------------------------------------------------------------------------------------
+  --- read logger settings, initialize logger, call scriptInfo to log your script ini file --
+  -------------------------------------------------------------------------------------------
+
+  if initTab.LOGS then
+    LOG_LEVEL = initTab.LOGS.LOG_LEVEL and string.lower(tostring(initTab.LOGS.LOG_LEVEL)) or LOG_LEVEL
+    LOG_TYPE = initTab.LOGS.LOG_TYPE and string.lower(tostring(initTab.LOGS.LOG_TYPE)) or LOG_TYPE
+    LOG_SIZE = initTab.LOGS.LOG_SIZE and tonumber(initTab.LOGS.LOG_SIZE) or LOG_SIZE
+    LOG_TRUNCATE_SIZE = initTab.LOGS.LOG_TRUNCATE_SIZE and tonumber(initTab.LOGS.LOG_TRUNCATE_SIZE) or LOG_TRUNCATE_SIZE
+    URL_PAPERTRAIL = initTab.LOGS.URL_PAPERTRAIL and tostring(initTab.LOGS.URL_PAPERTRAIL) or URL_PAPERTRAIL
+  end
+
+  local scriptName = vpos.script.currentScript():getName() or ""
+  local scriptVersion = tostring(vpos.tables.Table(806):getData(scriptName, 15) or 0)
+  local posName = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
+  local update = vpos.tables.Table(806):getData(scriptName, 6)
+  local scriptUpdate
+  if type(update) == "vec.types.Time" then
+    scriptUpdate = tostring(update)
+  else
+    scriptUpdate = "plsUpdate VPOS"
+  end
+
+  if LOG_LEVEL == "off" then
+    -- create a mock "object" with no functionality
+    log = {
+      ["scriptInfo"] = function() end,
+      ["trace"] = function() end,
+      ["debug"] = function() end,
+      ["info"] = function() end,
+      ["warn"] = function() end,
+      ["error"] = function() end
+    }
+  else
+    if not file_exists("logger.vsp") then
+      vpos.view.showWindow("Log settings wrong!\001 Please set LOG_LEVEL = off or import the logger script!")
+      vpos.script.exitScript()
+    end
+    log = logger(LOG_LEVEL, LOG_TYPE, LOG_SIZE, URL_PAPERTRAIL, scriptName,
+                    scriptVersion, scriptUpdate, posName)
+  end
+
+  -- hide passwords from ini files so they are not logged
+  for section, settings in pairs(initTab) do
+    for k,v in pairs(settings) do
+      if k:find("pass") or k:find("password") or k:find("passwort") or k:find("kennwort") then
+       settings[k] = "****"
+      end
+    end
+  end
+
+  local initTabAsJSON = vpos.utils.encodeJSON(initTab or {})
+  if initTabAsJSON then
+    log.scriptInfo(initTabAsJSON)
+  else
+    log.scriptInfo()
+  end
+end
+
+---------------------------------------------------------------------------
+----- TESTs ---------------------------------------------------------------
+---------------------------------------------------------------------------
+
+
+
+------------------------------------------------------------------
+--off
+------------------------------------------------------------------
+function testOff()
+  wait:setText("offline off")
+  wait:show()
+
+  initTab.LOGS.LOG_LEVEL = "off"
+  initTab.LOGS.LOG_TYPE = "offline"
+  initTab.LOGS.LOG_SIZE = 1000
+  initTab.LOGS.URL_PAPERTRAIL = "http://logs2.papertrailapp.com:21645"
+
+  readIni()
+
+  log.error ("ERROR com port 1")
+  log.warn ("NO INTERNET")
+  log.info ("Script settings loaded!")
+  log.debug ("var=123012 queue size = 20")
+  log.trace ("TRACE:var=123012 queue size = 20")
+  wait:close()
+end
+------------------------------------------------------------------
+--online trace
+------------------------------------------------------------------
+
+function testOnline()
+  wait:setText("online trace")
+  wait:show()
+
+  initTab.LOGS.LOG_LEVEL = "trace"
+  initTab.LOGS.LOG_TYPE = "online"
+  initTab.LOGS.LOG_SIZE = 1000
+  initTab.LOGS.URL_PAPERTRAIL = "http://logs2.papertrailapp.com:21645"
+
+  initTab.SECTION = {}
+  initTab.SECTION.password = "123456"
+
+  initTab.SETTINGS = {}
+  initTab.SETTINGS.someSettings = true
+  initTab.SETTINGS.anotherSettings = 123012
+  initTab.SETTINGS.someSettings = "this is a short text"
+
+  readIni()
+
+  log.error ("PRI 11   EROARE com port ")
+  log.warn ("PRI 12   NO INTERNET")
+  log.info ("PRI 14   Script settings loaded!")
+  log.debug ("PRI 15   var=123012 queue size = 20")
+  log.trace ("PRI 15   TRACE:var=123012 queue size = 20")
+
+  local httpClient = vpos.communication.HTTPClient ()
+  local url = "https://httpbin.org/anything"
+  local response, result, err = httpClient:request ("GET", url)
+
+  log.trace ("PRI 15   gesto request: "..url)
+  log.trace ("PRI 15   gesto request err: "..err)
+  log.trace ("PRI 15   gesto request result: "..result)
+  log.trace ("PRI 15   gesto request response: "..response)
+
+  wait:close()
+  vpos.view.showWindow("Test DONE!\001Check PaperTrail!")
+end
+
+
+function testOnlineFastlogs()
+  wait:setText("online fast logs")
+  wait:show()
+
+  initTab.LOGS.LOG_LEVEL = "trace"
+  initTab.LOGS.LOG_TYPE = "online"
+  initTab.LOGS.LOG_SIZE = 1000
+  initTab.LOGS.URL_PAPERTRAIL = "http://logs2.papertrailapp.com:21645"
+
+  initTab.SECTION = {}
+  initTab.SECTION.password = "123456"
+
+  initTab.SETTINGS = {}
+  initTab.SETTINGS.someSettings = true
+  initTab.SETTINGS.anotherSettings = 123012
+  initTab.SETTINGS.someSettings = "this is a short text"
+
+  readIni()
+
+  for i=1,10 do
+    log.error ("EROARE com port "..tostring(i))
+  end
+  for i=1,10 do
+    log.warn (tostring(i).." NO INTERNET")
+  end
+  for i=1,10 do
+    log.info (tostring(i).." Script settings loaded!")
+  end
+  for i=1,10 do
+    log.debug (tostring(i).." var=123012 queue size = 20")
+  end
+  for i=1,10 do
+    log.trace (tostring(i).." TRACE:var=123012 queue size = 20")
+  end
+
+  local httpClient = vpos.communication.HTTPClient ()
+  local url = "https://httpbin.org/anything"
+  local response, result, err = httpClient:request ("GET", url)
+
+  log.trace ("gesto request: "..url)
+  log.trace ("gesto request err: "..err)
+  log.trace ("gesto request result: "..result)
+  log.trace ("gesto request response: "..response)
+
+  wait:close()
+  vpos.view.showWindow("Test DONE!\001Check PaperTrail!")
+end
+------------------------------------------------------------------
+--offline fallback to file & size
+------------------------------------------------------------------
+function testOfflineSize()
+  wait:setText("offline trace & size")
+  wait:show()
+
+  initTab.LOGS.LOG_LEVEL = "trace"
+  initTab.LOGS.LOG_TYPE = "offline"
+  initTab.LOGS.LOG_SIZE = 30
+  initTab.LOGS.URL_PAPERTRAIL = "http://logs2.papertrailapp.com:21645"
+
+  initTab.SECTION = {}
+  initTab.SECTION.password = "123456"
+
+  initTab.SETTINGS = {}
+  initTab.SETTINGS.someSettings = true
+  initTab.SETTINGS.anotherSettings = 123012
+  initTab.SETTINGS.someSettings = "this is a short text"
+
+  readIni()
+
+  log.error ("EROARE com port 1")
+  log.warn ("NO INTERNET")
+  log.info ("Script settings loaded!")
+  log.debug ("var=123012 queue size = 20")
+  log.trace ("TRACE:var=123012 queue size = 20")
+
+  for i = 1, 100 do
+    local httpClient = vpos.communication.HTTPClient ()
+    local url = "https://httpbin.org/anything"
+    local response, result, err = httpClient:request ("GET", url)
+
+    log.trace ("httpbin request: "..url)
+    log.trace ("httpbin request err: "..err)
+    log.trace ("httpbin request result: "..result)
+    log.trace ("httpbin request response: "..response)
+    log.trace ("________________________WAIT 2 SEC ")
+    vpos.sleep("2000")
+  end
+
+  wait:close()
+  vpos.view.showWindow("Test DONE!\001Check log file!")
+end
+
+function testOfflineFastlogs()
+  wait:setText("offline fast logs")
+  wait:show()
+
+  local BIG_JSON = [[]]
+
+  initTab.LOGS.LOG_LEVEL = "trace"
+  initTab.LOGS.LOG_TYPE = "offline"
+  initTab.LOGS.LOG_SIZE = 30
+  initTab.LOGS.URL_PAPERTRAIL = "http://logs2.papertrailapp.com:21645"
+
+  readIni()
+
+  for i=1,10 do
+    log.error ("EROARE com port "..tostring(i))
+  end
+  for i=1,10 do
+    log.warn (" NO INTERNET")
+  end
+  for i=1,10 do
+    log.info (tostring(i).." Script settings loaded!")
+  end
+  for i=1,10 do
+    log.debug (tostring(i).." var=123012 queue size = 20")
+  end
+  for i=1,10 do
+    log.trace (tostring(i).." var=123012 queue size = 20")
+  end
+
+  for i = 1, 5 do
+    local httpClient = vpos.communication.HTTPClient ()
+    local url = "https://httpbin.org/anything"
+    local response, result, err = httpClient:request ("GET", url)
+
+    log.trace ("httpbin request: "..url)
+    log.trace ("httpbin request err: "..err)
+    log.trace ("httpbin request result: "..result)
+    log.trace ("httpbin request response: "..response)
+    log.trace ("________________________WAIT 2 SEC ")
+    vpos.sleep("2000")
+  end
+
+  for i=1,10 do
+    log.trace (tostring(i).." big JSON: "..BIG_JSON)
+  end
+
+  wait:close()
+  vpos.view.showWindow("Test DONE!\001Check log file!")
+end
+
+
+wait = vpos.view.InfoWindow("tests", "tests", false)
+
+
+
+initTab = {}
+initTab.LOGS = {}
+
+readIni()
+
+--testOff()
+--testOnline()
+--testOfflineSize()
+vpos.events.registerEntryPointFunction(1, "testOff")
+vpos.events.registerEntryPointFunction(2, "testOnline")
+vpos.events.registerEntryPointFunction(3, "testOfflineSize")
+vpos.events.registerEntryPointFunction(4, "testOnlineFastlogs")
+vpos.events.registerEntryPointFunction(5, "testOfflineFastlogs")
