@@ -98,7 +98,7 @@ end
 function writeMD(q, key)
   if not q or not next(q) then return end
   key = key or "key"
-  local metaTab = { key=q }
+  local metaTab = {key = q}
   local status = vpos.script.currentScript():setMetaData(metaTab)
 end
 
@@ -329,6 +329,9 @@ function scriptInit()
   end
 end
 
+--**************************************************************
+--- File functions
+-- @section File functions
 
 ---
 -- Checks for existance of a file
@@ -341,7 +344,7 @@ function file_exists(fn, host)
   local i, j = string.find(fn, ":")
   local fileHost
   if i then
-    fileHost = fn:sub(1,j-1)
+    fileHost = fn:sub(1, j-1)
     fn = fn:gsub("VPOS:", "")
     fn = fn:gsub("FILE:", "")
   end
@@ -357,7 +360,6 @@ function file_exists(fn, host)
   end
   return false
 end
-
 
 ---
 -- Function that moves/renames a file
@@ -378,7 +380,6 @@ function file_rename(fn1, fn2, overwrite)
   end
   return ok, err
 end
-
 
 ---
 -- Function which creates a log file having the name of the script and extension ".log"

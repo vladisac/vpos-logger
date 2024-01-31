@@ -83,7 +83,7 @@ function file_exists(fn, host)
   local i, j = string.find(fn, ":")
   local fileHost
   if i then
-    fileHost = fn:sub(1,j-1)
+    fileHost = fn:sub(1, j-1)
     fn = fn:gsub("VPOS:", "")
     fn = fn:gsub("FILE:", "")
   end
@@ -123,8 +123,6 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     message.datetime = dateISO()
     if not full then
       message.message = message.message:sub(1, LOG_TRUNCATE_SIZE)
-    else
-      message.message = message.message
     end
 
     vpos.script.callInterScriptFunctionExt("VPOS:logger.vsp", "ListPushLeft", {async = true}, message)
@@ -193,7 +191,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   function self.error(message)
     if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info  or level == logLevel.Warn or level == logLevel.Error then
       local line = tostring(debug.getinfo(2, "l").currentline) or " "
-      logTab.message = string.format("%4s", line) .. ": " .. message or ""
+      logTab.message = string.format("%4s", line) .. ": " .. (message or "")
       logTab.messageLevel = "error"
       logTab.priority = 11
       logData(logTab, true)
