@@ -17,6 +17,9 @@ POSNAME = ""
 
 --- Interval in milliseconds, at which the script timer fires events for logging.
 LOG_TIMER_INTERVAL = 300
+--- Interval in milliseconds, at which a new round of uploading offline logs is started.
+UPLOAD_ROUND_INTERVAL = 300000 -- = 5 * 60 * 1000 [ms] = 5 [minutes]
+
 
 --*************************************************************
 --- Global private variables
@@ -30,6 +33,13 @@ logList = {}
 --- Count the number of logging fallbacks to file.
 -- @global offlineCounter
 offlineCounter = 0
+
+--- Table containing information on offline saved logs, for uploading them.
+-- @global LogFileList
+LogFileList = {}
+--- Stop watch for uploading offline saved logs.
+-- @global UploadStopWatch
+UploadStopWatch = vpos.datetime.StopWatch()
 
 
 --*************************************************************
@@ -496,6 +506,117 @@ end
 
 
 --*************************************************************
+--- Upload offline logs functions
+-- @section Upload offline logs functions
+
+local function isUploadRound()
+  local split = UploadStopWatch:split()
+  if split < UPLOAD_ROUND_INTERVAL then
+     return false
+  else
+     return true
+  end
+end
+
+local function resetUploadWatch() UploadStopWatch:reset() end
+
+local function areUploadConditionsMet()
+  -- @todo implement!
+  return true
+end
+
+local function updateLogFileList()
+  local files = vpos.file.getFileList("VPOS")
+  local logList = {}
+
+  for k, fileName in pairs(files) do
+    if string.find(fileName, ".log") then
+      local scLog = vpos.script.Script {scriptURL = "VPOS:" .. fileName}
+      if not LogFileList[fileName] then LogFileList[fileName] = {uploadCounter = 0} end
+      LogFileList[fileName].fileSize = scLog:getSize()
+    end
+  end
+
+  return logList
+end
+
+local function deleteEmptyLogFileAndFileEntry(fileName)
+  assert(fileName, "Nil log file name")
+  local fileEntry = LogFileList[fileName]
+  if fileEntry.fileSize <= 0 then
+    vpos.file.delete("VPOS:" .. fileName)
+    LogFileList[fileName] = nil -- delete the log file entry
+  end
+end
+
+local function deleteAllEmptyLogFilesAndFileEntries()
+  for fileName, _ in pairs(LogFileList) do
+    deleteEmptyLogFileAndFileEntry(fileName)
+  end
+end
+
+local function determineLogFileToUpload()
+  local fileNameToUpload = nil
+  local fileEntryToUpload = {}
+  local minCounter = math.maxinteger
+
+  -- get the first log file entry with the minimum upload counter  
+  for fileName, fileEntry in pairs(LogFileList) do
+    if fileEntry.uploadCounter <= minCounter then
+      fileNameToUpload = fileName
+      fileEntryToUpload = fileEntry
+      minCounter = fileEntry.uploadCounter
+    end
+  end
+
+  return fileNameToUpload, fileEntryToUpload
+end
+
+local function uploadChunkOfLogFileLines(fileName, fileEntry)
+  local chunkSize = 2^14 -- 16 KB
+
+  --while read do
+  --   
+  --end
+
+  return chunkSize
+end
+
+local function trimLogFileChunkFromStart(fileName, startSize)
+  assert(fileName, "Nil log file name")
+  local fileEntry = LogFileList[fileName]
+
+end
+
+local function updateLogFileUploadCounter(fileName)
+  assert(fileName, "Nil log file name")
+  local fileEntry = LogFileList[fileName];
+  if fileEntry ~= nil then
+    assert(fileEntry.uploadCounter, "No upload counter in log file entry '" .. fileName .. "'");
+    fileEntry.uploadCounter = fileEntry.uploadCounter + 1
+  end
+end
+
+function uploadOfflineLogs()
+  if not isUploadRound() then return end
+  if not areUploadConditionsMet() then resetUploadWatch() return end
+
+  updateLogFileList()
+  deleteAllEmptyLogFilesAndFileEntries()
+
+  local fileName, fileEntry = determineLogFileToUpload()
+  if fileName ~= nil and fileEntry ~= nil then
+    local sentSize = uploadChunkOfLogFileLines(fileName, fileEntry)
+    trimLogFileChunkFromStart(fileName, fileEntry, sentSize)
+    updateLogFileUploadCounter(fileName)
+    deleteEmptyLogFileAndFileEntry(fileName)
+  end
+
+  resetUploadWatch()
+end
+
+
+--*************************************************************
 --- Timer functions
 -- @section Timer functions
 
@@ -504,6 +625,8 @@ end
 -- the logs to papertrail.
 function onLogTimer()
   local ok, err = pcall(handleQueue, logList)
+  assert(ok, err)
+  local ok, err = pcall(uploadOfflineLogs, logList)
   assert(ok, err)
 end
 
@@ -533,6 +656,7 @@ end
 
 local function initTimers()
   vpos.events.registerTimerFunction("onLogTimer", LOG_TIMER_INTERVAL)
+  UploadStopWatch:start()
 end
 
 --- Initializes the script.
