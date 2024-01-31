@@ -27,8 +27,7 @@ assert = function(...) end
 --- The logging list/queue containing all current messages to be logged.
 logList = {}
 
----
--- Count the number of fallbacks to file
+--- Count the number of logging fallbacks to file.
 -- @global offlineCounter
 offlineCounter = 0
 
@@ -37,11 +36,11 @@ offlineCounter = 0
 --- Helper functions
 -- @section Helper functions
 
---- Reformats or generates a date according to ISO 8601.
--- Reformats or generates a date according to the ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`.
+--- Formats the given or current date as per ISO 8601 format.
+-- Formats the given or the current date according to the ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`.
 -- Length of returned date: currently, only the first 19 of the 25 characters are returned.
 -- Example of returned date: `2016-11-09T04:25:28` (the full date would be `2016-11-09T04:25:28+01:00`).
--- @tparam[opt] DateTime Date to be formatted; if nil, the current date is used
+-- @tparam[opt] date DateTime Date to be formatted; if nil, the current date is used
 -- @treturn string Date formatted as per ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
 local function dateISO(date)
   local date = date or vpos.datetime.DateTime()
@@ -88,7 +87,7 @@ local function cloneTablesDeepOthersShallow(obj)
   return res
 end
 
---- Show the status of the fiscal printer.
+--- Shows the status of the fiscal printer.
 -- @tparam string msg message to be shown as status
 -- @tparam number subNumber the ID of the view where the status is shown
 local function showFiscalPrinterStatus(msg, subNumber)
@@ -102,10 +101,8 @@ end
 --- Metadata functions
 -- @section Metadata functions
 
----
--- Read from metadata.
--- @treturn Nil if metadata is empty
--- @treturn table
+--- Reads the queue from the script metadata, indexed by "key" key.
+-- @treturn table|nil The metadata queue indexed by "key" if present, otherwise `nil`
 function readMD()
   local metaTab = vpos.script.currentScript():getMetaData()
   if not metaTab or not next(metaTab) then
@@ -115,9 +112,9 @@ function readMD()
   end
 end
 
----
--- Write to metadata.
--- @tparam table queue
+--- Writes the queue to the script metadata, indexed by the given key.
+-- @tparam table q The queue
+-- @tparam[opt] string key The key at which the queue is indexed in the metadata
 function writeMD(q, key)
   if not q or not next(q) then return end
   key = key or "key"
@@ -125,31 +122,35 @@ function writeMD(q, key)
   local status = vpos.script.currentScript():setMetaData(metaTab)
 end
 
+--- Clears the script metadata.
+-- Practically, erases the log queue and saves this empty queue to the metadata.
+function clearMD()
+  eraseQueue(logList)
+  writeMD(logList)
+end
+
 
 --*************************************************************
 --- Queue functions
 -- @section Queue functions
 
----
--- Get queue size.
--- @tparam table queue
--- @treturn number
+--- Gets the queue size.
+-- @tparam table q The queue
+-- @treturn number The queue size
 function queueSize(q)
   return math.abs(q.first) - math.abs(q.last) + 1
 end
 
----
--- Check if queue is empty.
--- @tparam table queue
--- @treturn boolean
+--- Checks if the queue is empty.
+-- @tparam table q The queue
+-- @treturn boolean `true` if the queue is empty, otherwise `false`
 function isQueueEmpty(q)
   if not q.first or not q.last then return true end
   if q.first > q.last then return true else return false end
 end
 
----
--- Erase all the elements from a queue.
--- @tparam table queue
+--- Erases all elements from the queue.
+-- @tparam table q The queue
 function eraseQueue(q)
   for i in pairs(q) do
     q[i] = nil
@@ -158,16 +159,8 @@ function eraseQueue(q)
   q.last = -1
 end
 
----
--- Erase log queue and save it to MetaData
-function clearMD()
-  eraseQueue(logList)
-  writeMD(logList)
-end
-
----
--- Dump the queue to file
--- @tparam table queue
+--- Dumps the queue to file.
+-- @tparam table q The queue
 function dumpQueue(q)
   -- dump all to file logger.log
   local f = getLogFile("logger.vsp", 500)
@@ -223,7 +216,6 @@ function dropHeadElem(q, use)
   if use then return unfit end
 end
 
----
 ---
 -- Enqueue.
 -- @tparam table queue
@@ -343,10 +335,9 @@ end
 --- File functions
 -- @section File functions
 
----
--- Checks for existance of a file
--- @tparam string fn file to be checked
--- @treturn bool true if exists
+--- Checks for the existance of the file.
+-- @tparam string fn File name/path to be checked
+-- @treturn boolean `true` if the file exists, otherwise `false`
 function file_exists(fn, host)
   if not fn then return false end
   allowedHosts = {["VPOS"] = 1, ["FILE"] = 1, ["MEDIAFILE"] = 1}
@@ -456,9 +447,10 @@ function formatMessage(message, fallback)
   return outStr
 end
 
--- Sends the message using sockets
--- If sending over the internet fails, write the message to a file
--- @tparam table message containing the needed information
+--- Sends the message to be logged.
+-- Sends the message using sockets over the internet (online mode). If this fails
+-- or is explicitly requested, writes the message to a file (offline mode).
+-- @tparam table message Message containing the information to be logged
 function sendMessage(message)
   local ok, outStr = pcall(formatMessage, message)
   assert(ok, outStr)
@@ -514,6 +506,7 @@ function onLogTimer()
   local ok, err = pcall(handleQueue, logList)
   assert(ok, err)
 end
+
 
 --*************************************************************
 --- Initialization functions
