@@ -1,7 +1,9 @@
 --!ScriptAPI: 1.14
 --!ScriptVersion: 1.8
+
+
 ------------------------------------------------------------------------------
------------ 1. GLOBAL DEFAULTS, add to top of your code and .ini file --------
+----------- 1. GLOBAL DEFAULTS: add to top of your code and .ini file --------
 ------------------------------------------------------------------------------
 
 ---
@@ -25,13 +27,12 @@ LOG_TYPE = "online"
 URL_PAPERTRAIL = "http://logs2.papertrailapp.com:21645"
 
 -----------------------------------------------------------------------------
----------------------------- END 1. GLOBAL DEFAULTS -------------------------
+----------- END 1. GLOBAL DEFAULTS ------------------------------------------
 -----------------------------------------------------------------------------
 
 
-
 -----------------------------------------------------------------------------
------------------- 2. Logger definition, add to functions -------------------
+----------- 2. LOGGER DEFINITION: add to functions --------------------------
 -----------------------------------------------------------------------------
 
 local logLevel = {
@@ -99,7 +100,6 @@ function file_exists(fn, host)
   return false
 end
 
-
 function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptUpdate, vposName)
   -- create a new instance
   local self = {
@@ -159,7 +159,6 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     end
   end
 
-
   -- used for 'Debug' log level
   function self.debug(message, full)
     if level == logLevel.Trace or level == logLevel.Debug then
@@ -205,16 +204,17 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
 end
 
 -----------------------------------------------------------------------------
--------------- END 2. Logger definition, add to functions -------------------
+----------- END 2. LOGGER DEFINITION ----------------------------------------
 -----------------------------------------------------------------------------
 
 
 function readIni()
-  -------------------------------------------------------------------------------------------
-  ------------------------------- 3. INITIALIZATION PROCEDURE  ------------------------------
-  -------------------------------------------------------------------------------------------
-  --- read logger settings, initialize logger, call scriptInfo to log your script ini file --
-  -------------------------------------------------------------------------------------------
+
+  -----------------------------------------------------------------------------
+  ----------- 3. INITIALIZATION PROCEDURE: ------------------------------------
+  ----------- read logger settings, initialize logger, ------------------------
+  ----------- call scriptInfo to log your script ini file ---------------------
+  -----------------------------------------------------------------------------
 
   if initTab.LOGS then
     LOG_LEVEL = initTab.LOGS.LOG_LEVEL and string.lower(tostring(initTab.LOGS.LOG_LEVEL)) or LOG_LEVEL
@@ -270,10 +270,9 @@ function readIni()
     log.scriptInfo()
   end
 
-  -------------------------------------------------------------------------------------------
-  --------------------------- END 3. INITIALIZATION PROCEDURE  ------------------------------
-  -------------------------------------------------------------------------------------------
-
+  -----------------------------------------------------------------------------
+  ----------- END 3. INITIALIZATION PROCEDURE  --------------------------------
+  -----------------------------------------------------------------------------
 
 end
 
@@ -293,15 +292,14 @@ end
 
 
 
----------------------------------------------------------------------------
------ TESTs ---------------------------------------------------------------
----------------------------------------------------------------------------
-
-
+-------------------------------------------------------------------------------
+----------- TESTS -------------------------------------------------------------
+-------------------------------------------------------------------------------
 
 ------------------------------------------------------------------
---off
+-- traces off
 ------------------------------------------------------------------
+
 function testOff()
   wait:setText("offline off")
   wait:show()
@@ -320,8 +318,9 @@ function testOff()
   log.trace ("TRACE:var=123012 queue size = 20")
   wait:close()
 end
+
 ------------------------------------------------------------------
---online trace
+-- online traces
 ------------------------------------------------------------------
 
 function testOnline()
@@ -361,7 +360,6 @@ function testOnline()
   wait:close()
   vpos.view.showWindow("Test DONE!\001Check PaperTrail!")
 end
-
 
 function testOnlineFastlogs()
   wait:setText("online fast logs")
@@ -410,9 +408,11 @@ function testOnlineFastlogs()
   wait:close()
   vpos.view.showWindow("Test DONE!\001Check PaperTrail!")
 end
+
 ------------------------------------------------------------------
---offline fallback to file & size
+-- offline traces with fallback to file & size
 ------------------------------------------------------------------
+
 function testOfflineSize()
   wait:setText("offline trace & size")
   wait:show()
@@ -506,14 +506,18 @@ function testOfflineFastlogs()
 end
 
 
-wait = vpos.view.InfoWindow("tests", "tests", false)
+-------------------------------------------------------------------------------
+----------- MAIN section: clean tests related code in production --------------
+-------------------------------------------------------------------------------
 
+wait = vpos.view.InfoWindow("tests", "tests", false)
 
 
 initTab = {}
 initTab.LOGS = {}
 
 readIni()
+
 
 --testOff()
 --testOnline()

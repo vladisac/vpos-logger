@@ -5,6 +5,11 @@
 -- Date: 03/2020
 -- Description: use metadata and queue for sending log messages to url (eg http://logs6.papertrailapp.com:17732 )
 
+
+--*************************************************************
+--- Global private variables
+-- @section Global private variables
+
 assert = function(...) end
 
 ---
@@ -12,6 +17,10 @@ assert = function(...) end
 -- @global offlineCounter
 offlineCounter = 0
 
+
+--*************************************************************
+--- Helper functions
+-- @section Helper functions
 
 ---
 -- Function to generate a date following format as per ISO 8601: rrrr-mm-ddThh:mm:ss±hh:mm
@@ -46,9 +55,29 @@ local function dateISO(date)
   return tostring(year).."-"..string.format("%02d", month).."-"..string.format("%02d", day).."T"..
           string.format("%02d", hour)..":"..string.format("%02d", minute)..":"..string.format("%02d",second)
 
+-- There are two aspects this does not handle:
+-- * metatables
+-- * recursive tables
+function copy(obj)
+  if type(obj) ~= 'table' then return obj end
+  local res = {}
+  for k, v in pairs(obj) do res[copy(k)] = copy(v) end
+  return res
 end
 
---******************* METADATA FUNCTIONS ***********************
+--- Show the status of the fiscal printer.
+-- @tparam string msg message to be shown as status
+-- @tparam number subNumber the ID of the view where the status is shown
+local function showFiscalPrinterStatus(msg, subNumber)
+  local wndSubNum = subNumber or 69
+  local gestoInfo = vpos.view.LayoutWindow(wndSubNum)
+  gestoInfo:setText(msg)
+end
+
+
+--*************************************************************
+--- Metadata functions
+-- @section Metadata functions
 
 ---
 -- Read from metadata.
@@ -74,9 +103,9 @@ function writeMD(q, key)
 end
 
 
-
---******************* END METADATA FUNCTIONS *******************
-
+--*************************************************************
+--- Queue functions
+-- @section Queue functions
 
 ---
 -- Get queue size.
@@ -86,7 +115,6 @@ function queueSize(q)
   return math.abs(q.first) - math.abs(q.last) + 1
 end
 
-
 ---
 -- Check if queue is empty.
 -- @tparam table queue
@@ -95,7 +123,6 @@ function isQueueEmpty(q)
   if not q.first or not q.last then return true end
   if q.first > q.last then return true else return false end
 end
-
 
 ---
 -- Erase all the elements from a queue.
@@ -159,7 +186,6 @@ function queueInit()
   end
 end
 
-
 ---
 -- Get the element from the head of the queue.
 -- This function is used to completely remove the element
@@ -174,18 +200,6 @@ function dropHeadElem(q, use)
   q.last = last - 1
   if use then return unfit end
 end
-
-
--- There are two aspects this does not handle:
--- * metatables
--- * recursive tables
-function copy(obj)
-  if type(obj) ~= 'table' then return obj end
-  local res = {}
-  for k, v in pairs(obj) do res[copy(k)] = copy(v) end
-  return res
-end
-
 
 ---
 ---
@@ -203,7 +217,6 @@ function ListPushLeft(value)
   writeMD(logList)
 end
 
-
 ---
 -- Get(read) the element from the head of the list.
 -- @tparam table queue
@@ -214,7 +227,6 @@ function ListGetRight(q)
   return q[last]
 end
 
-
 ---
 -- Dequeue.
 -- @tparam table queue
@@ -223,17 +235,6 @@ function ListPopRight(q)
   q[last] = nil
   q.last = last - 1
 end
-
----
--- Function to show the status of the fiscal printer
--- @tparam string msg message to be shown as status
--- @tparam number subNumber the ID of the view where the status is shown
-local function showStatus(msg, subNumber)
-  local wndSubNum = subNumber or 69
-  local gestoInfo = vpos.view.LayoutWindow(wndSubNum)
-  gestoInfo:setText(msg)
-end
-
 
 ---
 -- Send the logs and update the queue and metadata
@@ -271,7 +272,6 @@ function sendFromQueue(q)
     end
   end
 end
-
 
 ---
 -- Manage the queue
@@ -420,8 +420,11 @@ function getLogFile(scriptName, logSizeInKB)
 end
 
 
----
--- Format the message by adding information about the script and POS terminal
+--**************************************************************
+--- Message functions
+-- @section Message functions
+
+---Format the message by adding information about the script and POS terminal.
 -- @tparam table message containing the needed information
 -- @tparam bool fallback true if called due to fallback
 -- @treturn string outStr log message to send
@@ -489,12 +492,22 @@ function sendMessage(message)
 end
 
 
----
--- Timer calling `handleQueue` for sending the log to papertrail
-function logTimer()
+--*************************************************************
+--- Timer functions
+-- @section Timer functions
+
+--- Function called on timer timeouts.
+-- Timer function calling `handleQueue` and `uploadOfflineLogs` for sending
+-- the logs to papertrail.
+function onLogTimer()
   local ok, err = pcall(handleQueue, logList)
   assert(ok, err)
 end
+
+
+--*************************************************************
+--- Main
+-- @section main
 
 -- format the company name
 COMP_NAME = string.lower(vpos.systeminfo.Company():getName())
