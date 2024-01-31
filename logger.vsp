@@ -7,10 +7,25 @@
 
 
 --*************************************************************
+--- Global private settings (read-only initialized variables used as constants)
+-- @section Global private settings
+
+--- Company name
+COMP_NAME = ""
+--- POS name
+POSNAME = ""
+
+--- Interval in milliseconds, at which the script timer fires events for logging.
+LOG_TIMER_INTERVAL = 300
+
+--*************************************************************
 --- Global private variables
 -- @section Global private variables
 
 assert = function(...) end
+
+--- The logging list/queue containing all current messages to be logged.
+logList = {}
 
 ---
 -- Count the number of fallbacks to file
@@ -177,14 +192,13 @@ function dumpQueue(q)
   return count
 end
 
----
--- Initialize queue as an empty queue or with
--- data from metadata.
--- @tparam boolean metaInit
--- @treturn table
+--- Gets the initial queue.
+-- Gets the queue saved in the script metadata if present, otherwise an empty and
+-- initialized queue.
+-- @treturn table The inital queue
 -- @see readMD
 -- @see isQueueEmpty
-function queueInit()
+function getInitialQueue()
   local ok, initMetaData = pcall(readMD)
   assert(ok, initMetaData)
   if ok and initMetaData and not isQueueEmpty(initMetaData) then
@@ -324,18 +338,6 @@ function handleQueue(q)
   end
 end
 
-
----
--- Initialise the queue from MetaData if possible
-function scriptInit()
-  ok, logList = pcall(queueInit)
-  assert(ok, logList)
-  if not ok then
-    ok, logList = pcall(queueInit)
-    assert(ok, logList)
-    writeMD()
-  end
-end
 
 --**************************************************************
 --- File functions
@@ -513,23 +515,51 @@ function onLogTimer()
   assert(ok, err)
 end
 
+--*************************************************************
+--- Initialization functions
+-- @section Top functions
+
+local function initSettings()
+    -- format the company name
+    COMP_NAME = string.lower(vpos.systeminfo.Company():getName())
+    COMP_NAME = COMP_NAME:gsub("sc", ""):gsub(" ", "")
+    COMP_NAME = COMP_NAME:sub(1, 4) .. "_"
+    POSNAME = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
+end
+
+local function initLogList()
+  local ok
+  ok, logList = pcall(getInitialQueue)
+  assert(ok, logList)
+  if not ok then
+    ok, logList = pcall(getInitialQueue)
+    assert(ok, logList)
+    writeMD()
+  end
+end
+
+local function initTimers()
+  vpos.events.registerTimerFunction("onLogTimer", LOG_TIMER_INTERVAL)
+end
+
+--- Initializes the script.
+-- Initializes the settings, registers the script in VPOS environment, initializes
+-- the queue from MetaData if possible and finally the internal timers.
+function scriptInit()
+  initSettings()
+
+  vpos.script.registerAsInterScript()
+
+  initLogList()
+  initTimers()
+end
+
 
 --*************************************************************
 --- Main
 -- @section main
 
--- format the company name
-COMP_NAME = string.lower(vpos.systeminfo.Company():getName())
-COMP_NAME = COMP_NAME:gsub("sc", ""):gsub(" ", "")
-COMP_NAME = COMP_NAME:sub(1, 4) .. "_"
-POSNAME = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
-
-vpos.script.registerAsInterScript()
-
 scriptInit()
-
-
-vpos.events.registerTimerFunction("logTimer", 300)
 
 ---
 -- @entrypoint ClearMetadata
