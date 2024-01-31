@@ -22,46 +22,54 @@ offlineCounter = 0
 --- Helper functions
 -- @section Helper functions
 
----
--- Function to generate a date following format as per ISO 8601: rrrr-mm-ddThh:mm:ss±hh:mm
--- Length: 25 characters.
--- Example - daylight saving time:2016-11-09T04:25:28+01:00
--- @tparam datetime date to be formated
--- @treturn string date formated as per ISO 8601: rrrr-mm-ddThh:mm:ss±hh:mm
+--- Reformats or generates a date according to ISO 8601.
+-- Reformats or generates a date according to the ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`.
+-- Length of returned date: currently, only the first 19 of the 25 characters are returned.
+-- Example of returned date: `2016-11-09T04:25:28` (the full date would be `2016-11-09T04:25:28+01:00`).
+-- @tparam[opt] DateTime Date to be formatted; if nil, the current date is used
+-- @treturn string Date formatted as per ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
 local function dateISO(date)
-  local date = date or vpos.datetime.DateTime ()
-  local day, month, year = date:getDate ()
-  local hour, minute, second = date:getTime ()
-
+  local date = date or vpos.datetime.DateTime()
+  local day, month, year = date:getDate()
+  local hour, minute, second = date:getTime()
 
   local function IsDST(day, month, year)
+    -- January, February, November and December are out.
+    if month < 3 or month > 10 then return 0 end
+    -- April to October are in.
+    if month > 3 and month < 10 then return 1 end
 
-      --January, february, november and december are out.
-      if month < 3 or month > 10 then return 0 end
-      --April to October are in
-      if month > 3 and month < 10 then return 1 end
+    local marchSunday = math.ceil(31 - ((((5 * year) / 4) + 4) % 7))
+    local octoberSunday = math.ceil(31 - ((((5 * year) / 4) + 1) % 7))
 
-      marchSunday = math.ceil(31 - ((((5 * year) / 4) + 4) % 7))
-      octoberSunday = math.ceil(31 - ((((5 * year) / 4) + 1) % 7))
-
-      --In march, we are DST if our previous sunday was on or after the 8th.
-      if month == 3 then if day >= marchSunday then return 1 else return 0 end end
-      --In november we must be before the first sunday to be dst.
-      --That means the previous sunday must be before the 1st.
-      if day < octoberSunday then return 1 else return 0 end
+    -- In March, we are DST if our previous Sunday was on or after the 8th.
+    if month == 3 then if day >= marchSunday then return 1 else return 0 end end
+    -- In October we must be before the first Sunday to be DST.
+    -- That means the previous Sunday must be before the 1st.
+    if day < octoberSunday then return 1 else return 0 end
   end
 
   local offset = 1 + IsDST(day, month, year)
-  return tostring(year).."-"..string.format("%02d", month).."-"..string.format("%02d", day).."T"..
-          string.format("%02d", hour)..":"..string.format("%02d", minute)..":"..string.format("%02d",second)
+  return tostring(year) .. "-" .. string.format("%02d", month) .. "-" .. string.format("%02d", day) .. "T" ..
+         string.format("%02d", hour) .. ":" .. string.format("%02d", minute) .. ":" .. string.format("%02d", second)
+end
 
--- There are two aspects this does not handle:
+--- Clones the object in a custom way.
+-- If the object is a table and for all its table fields recursively, it does a deep
+-- clone. For all non-table fields recursively, or if the object is not a table, it
+-- does a shallow clone.
+-- There are two aspects this function does not handle:
 -- * metatables
--- * recursive tables
-function copy(obj)
+-- * recursive tables.
+-- @param obj any The object to be cloned
+-- @return any The cloned object
+local function cloneTablesDeepOthersShallow(obj)
   if type(obj) ~= 'table' then return obj end
+
   local res = {}
-  for k, v in pairs(obj) do res[copy(k)] = copy(v) end
+  for k, v in pairs(obj) do
+    res[cloneTablesDeepOthersShallow(k)] = cloneTablesDeepOthersShallow(v)
+  end
   return res
 end
 
@@ -212,7 +220,7 @@ function ListPushLeft(value)
   value.datetime = value.datetime or dateISO()
   value.priority = value.priority or "22"
   logList.first = first
-  logList[first] = copy(value)
+  logList[first] = cloneTablesDeepOthersShallow(value)
   -- save the new queue to metadata
   writeMD(logList)
 end
