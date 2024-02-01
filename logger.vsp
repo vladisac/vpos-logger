@@ -20,6 +20,29 @@ LOG_TIMER_INTERVAL = 300
 --- Interval in milliseconds, at which a new round of uploading offline logs is started.
 UPLOAD_ROUND_INTERVAL = 300000 -- 5 * 60 * 1000 [ms] = 5 [minutes]
 
+--- The chunk size to be uploaded from an offline log file, in an uploaded round. More
+--- than this value might be read and processed.
+LOG_CHUNK_SIZE_TO_UPLOAD = 2^14 -- 16 KB
+--- The max. age of oflline log lines, which will be uploaded.
+UPLOAD_LOG_LINE_AGE_IN_DAYS = 30
+
+--- ISO 8601 date constants
+ISO_DATE = {
+  DATE_SEP      = "-", --- separator between date parts
+  TIME_MARK     = "T", --- time mark/sign between the date and time sections
+  TIME_SEP      = ":", --- separator between the time parts and respectively time zone parts
+  TZ_UTC_MARK   = "Z", --- time zone UTC mark/sign
+  TZ_PLUS_MARK  = "+", --- time zone minus mark/sign
+  TZ_MINUS_MARK = "-", --- time zone UTC mark/sign
+
+  BYTE_DATE_SEP      = ISO_DATE.DATE_SEP:byte(1),
+  BYTE_TIME_MARK     = ISO_DATE.TIME_MARK:byte(1),
+  BYTE_TIME_SEP      = ISO_DATE.TIME_SEP:byte(1),
+  BYTE_TZ_UTC_MARK   = ISO_DATE.TZ_UTC_MARK:byte(1),
+  BYTE_TZ_PLUS_MARK  = ISO_DATE.TZ_PLUS_MARK:byte(1),
+  BYTE_TZ_MINUS_MARK = ISO_DATE.TZ_MINUS_MARK:byte(1),
+}
+
 
 --*************************************************************
 --- Global private variables
@@ -59,6 +82,67 @@ local function dateISO(date)
 
   return tostring(year) .. "-" .. string.format("%02d", month) .. "-" .. string.format("%02d", day) .. "T" ..
          string.format("%02d", hour) .. ":" .. string.format("%02d", minute) .. ":" .. string.format("%02d", second)
+end
+
+--- Decomposes the given date in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`.
+-- @tparam isoDate string The date in ISO 8601 format.
+-- @treturn boolean `true` on successful decomposition, otherwise `false` 
+-- @treturn table|string On failure returns an error string. Otherwise, returns a
+-- table with all of the ISO date parts:
+--   * `year`, `month`, `day` integer
+--   * `hours`, `minute`, `second` integer
+--   * `timezoneHour`, `timezoneMinute` integer 
+local function decomposeISODate(isoDate)
+  assert(isoDate)
+
+  -- ISO 8601: y y y y - m m - d d T h h : m m : s s ± h h : m m
+  -- Position: 0       5     8     11    14    17    20    23  25
+
+  local dateLen = string.len(isoDate)
+  if dateLen < 19 then
+    return false, "Date string is too short to be ISO 8601 or is incomplete"
+  end
+  if string.byte(isoDate, 5)  ~= ISO_DATE.BYTE_DATE_SEP          or
+     string.byte(isoDate, 8)  ~= ISO_DATE.BYTE_DATE_SEP          or
+     string.byte(isoDate, 11) ~= ISO_DATE.BYTE_TIME_MARK         or
+     string.byte(isoDate, 14) ~= ISO_DATE.BYTE_TIME_SEP          or
+     string.byte(isoDate, 17) ~= ISO_DATE.BYTE_TIME_SEP          or
+     (dateLen >= 22 and
+      (string.byte(isoDate, 20) ~= ISO_DATE.BYTE_TZ_UTC_MARK  or
+       string.byte(isoDate, 20) ~= ISO_DATE.BYTE_TZ_PLUS_MARK or
+       string.byte(isoDate, 20) ~= ISO_DATE.BYTE_TZ_MINUS_MARK)) or
+     (dateLen >= 25 and string.byte(isoDate, 23) ~= ISO_DATE.BYTE_TIME_SEP) then
+    return false, "Date string is not in ISO 8601 format"
+  end
+
+  local year = tonumber(string.sub(isoDate, 1, 4))
+  if year == nil then return false, "Can't convert year to number" end
+  local month = tonumber(string.sub(isoDate, 6, 7))
+  if month == nil then return false, "Can't convert month to number" end
+  local day = tonumber(string.sub(isoDate, 9, 10))
+  if day == nil then return false, "Can't convert day to number" end
+
+  local hours = tonumber(string.sub(isoDate, 12, 13))
+  if hours == nil then return false, "Can't convert hour to number" end
+  local minute = tonumber(string.sub(isoDate, 15, 16))
+  if minute == nil then return false, "Can't convert minute to number" end
+  local second = tonumber(string.sub(isoDate, 18, 19))
+  if second == nil then return false, "Can't convert second to number" end
+
+  local timezoneHour, timezoneMinute
+  if dateLen >= 22 then
+    timezoneHour = tonumber(string.sub(isoDate, 12, 13))
+    if timezoneHour == nil then return false, "Can't convert time zone hour to number" end
+  end
+  if dateLen >= 25 then
+    timezoneMinute = tonumber(string.sub(isoDate, 12, 13))
+    if timezoneMinute == nil then return false, "Can't convert time zone minute to number" end
+  end
+
+  return true, {
+    year = year, month = month, day = day, hours = hours, minute = minute, second = second,
+    timezoneHour = timezoneHour or 0, timezoneMinute = timezoneMinute or 0
+  }
 end
 
 --- Clones the object in a custom way.
@@ -163,7 +247,7 @@ function dumpQueue(q)
   q.first = nil
   q.last = nil
   for k,v in pairs(q) do
-      message = message..v.scriptName.." " .. v.datetime .. " " .. v.message .. "\n"
+      message = message .. v.scriptName .. " " .. v.datetime .. " " .. v.message .. "\n"
       size = size + #message
       if size > 5000 then
         f.fh:write(message)
@@ -420,7 +504,50 @@ end
 --- Message functions
 -- @section Message functions
 
----Format the message by adding information about the script and POS terminal.
+--- Decomposes/Unformats an offline message string/line into its parts.
+-- @tparam str string The message string/line
+-- @treturn boolean `true` on successful decomposition, otherwise `false` 
+-- @treturn table|string On failure returns an error string. Otherwise, returns a
+-- table with all of the message string parts:
+--   * `sendDate` string: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
+--   * `messageLevel` string: the log level
+--   * `qFirst`, `qLast` integer: the original queue boundary indexes
+--   * `messageBody` string: the actual message;
+local function decomposeOfflineMessageString(str)
+  assert(str)
+
+  local k = 1;
+  local i, j = string.find(str, " [", k, true)
+  if not i or i <= 1 then return false, "Can't determine send date" end
+  local sentIsoDate = string.sub(str, k, i - 1)
+
+  k = j + 1
+  i, j = string.find(str, "] >> ", k, true)
+  if not i or i <= 1 then return false, "Can't determine log level" end
+  local messageLevel = string.sub(str, k, i - 1)
+
+  k = j + 1
+  i, j = string.find(str, ":", k, true)
+  if not i or i <= 1 then return false, "Can't determine queue first index" end
+  local qFirst = tonumber(string.sub(str, k, i - 1))
+  if qFirst == nil then return false, "Can't convert queue first index to number" end
+
+  k = j + 1
+  i, j = string.find(str, " ", k, true)
+  if not i or i <= 1 then return false, "Can't determine queue last index" end
+  local qLast = tonumber(string.sub(str, k, i - 1))
+  if qLast == nil then return false, "Can't convert queue last index to number" end
+
+  k = j + 1
+  local messageBody = string.sub(str, k)
+
+  return true, {
+    sentIsoDate = sentIsoDate, messageLevel = messageLevel,
+    qFirst = qFirst, qLast = qLast, messageBody = messageBody
+  }
+end
+
+--- Formats the message by adding information about the script and POS terminal.
 -- @tparam table message containing the needed information
 -- @tparam bool fallback true if called due to fallback
 -- @treturn string outStr log message to send
@@ -488,7 +615,6 @@ function sendMessage(message)
     file.fh:write(outStr)
     file.fh:flush()
   end
-
 end
 
 
@@ -613,7 +739,7 @@ end
 function onLogTimer()
   local ok, err = pcall(handleQueue, logList)
   assert(ok, err)
-  local ok, err = pcall(uploadOfflineLogs, logList)
+  ok, err = pcall(uploadOfflineLogs, logList)
   assert(ok, err)
 end
 
