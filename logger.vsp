@@ -18,7 +18,7 @@ POSNAME = ""
 --- Interval in milliseconds, at which the script timer fires events for logging.
 LOG_TIMER_INTERVAL = 300
 --- Interval in milliseconds, at which a new round of uploading offline logs is started.
-UPLOAD_ROUND_INTERVAL = 300000 -- = 5 * 60 * 1000 [ms] = 5 [minutes]
+UPLOAD_ROUND_INTERVAL = 300000 -- 5 * 60 * 1000 [ms] = 5 [minutes]
 
 
 --*************************************************************
@@ -112,7 +112,7 @@ function writeMD(q, key)
   if not q or not next(q) then return end
   key = key or "key"
   local metaTab = {key = q}
-  local status = vpos.script.currentScript():setMetaData(metaTab)
+  return vpos.script.currentScript():setMetaData(metaTab)
 end
 
 --- Clears the script metadata.
@@ -300,8 +300,9 @@ function handleQueue(q)
               priority="11",
               messageLevel="error",
               message= "QUEUE WAS ERASED:"..tostring(resp)})
-      ok, resp = pcall(writeMD, q)
-      assert(ok, resp)
+      local resp2
+      ok, resp2 = pcall(writeMD, q)
+      assert(ok, resp2)
     else
       local limit
       if qSize > 10 then limit = 10 else limit = qSize end
@@ -429,12 +430,14 @@ function formatMessage(message, fallback)
   if message.logType == "online" and not fallback then
     local scriptVersion = tostring(vpos.tables.Table(806):getData(message.scriptName, 15) or 0)
     local scriptData = string.format("%s_v:%s", message.scriptName, scriptVersion)
-    local trace = message.messageLevel == "trace" and "[trace] " or ""
+    local trace = (message.messageLevel == "trace" and "[trace] ") or ""
 
-    outStr = "<"..message.priority..">1 "..message.datetime.." ".. COMP_NAME .. POSNAME ..
-            " " .. scriptData .." - - - ".. trace   .. message.qFirst..":" .. message.qLast .." ".. message.message .. "\n"
+    outStr = "<" .. message.priority .. ">1 " .. message.datetime .. " " .. COMP_NAME .. POSNAME ..
+             " " .. scriptData .. " - - - " .. trace ..
+             message.qFirst .. ":" .. message.qLast .. " " .. message.message .. "\n"
   else
-    outStr = message.datetime .. " [" .. message.messageLevel .. "] >> ".. message.qFirst..":" .. message.qLast .." " .. message.message .. "\n"
+    outStr = message.datetime .. " [" .. message.messageLevel .. "] >> " ..
+             message.qFirst .. ":" .. message.qLast .. " " .. message.message .. "\n"
   end
 
   return outStr
@@ -450,7 +453,8 @@ function sendMessage(message)
   local _,_, scriptFN = string.find(message.scriptName, "(.+)%.(%a+)")
 
   if not ok then
-    outStr = "<11>1 "..dateISO().." "..COMP_NAME..POSNAME.." logger.vsp - - - ________PCALL error:"..tostring(outStr).."\n"
+    outStr = "<11>1 " .. dateISO() .. " " .. COMP_NAME .. POSNAME ..
+             " logger.vsp - - - ________PCALL error:" .. tostring(outStr) .. "\n"
   end
 
   if message.logType == "online" and message.url then
@@ -642,24 +646,17 @@ local function initTimers()
   UploadStopWatch:start()
 end
 
---- Initializes the script.
--- Initializes the settings, registers the script in VPOS environment, initializes
--- the queue from MetaData if possible and finally the internal timers.
-function scriptInit()
-  initSettings()
-
-  vpos.script.registerAsInterScript()
-
-  initLogList()
-  initTimers()
-end
-
 
 --*************************************************************
 --- Main
 -- @section main
 
-scriptInit()
+initSettings()
+initLogList()
+
+vpos.script.registerAsInterScript()
+
+initTimers()
 
 ---
 -- @entrypoint ClearMetadata
