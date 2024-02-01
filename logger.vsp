@@ -639,90 +639,151 @@ local function areUploadConditionsMet()
 end
 
 local function updateLogFileList()
-  local files = vpos.file.getFileList("VPOS")
-  local logList = {}
+  local fileList = vpos.file.getFileList("VPOS")
 
-  for k, fileName in pairs(files) do
+  -- clear log file elements for files deleted in the mean time
+  for fileName, _ in pairs(LogFileList) do
+    if not fileList[fileName] then LogFileList[fileName] = nil end
+  end
+
+  -- add new log file elements and update the fileSize for the existing ones
+  for fileName, _ in pairs(fileList) do
     if string.find(fileName, ".log") then
       local scLog = vpos.script.Script {scriptURL = "VPOS:" .. fileName}
-      if not LogFileList[fileName] then LogFileList[fileName] = {uploadCounter = 0} end
+      if not LogFileList[fileName] then
+        LogFileList[fileName] = {readOffset = 0, uploadCounter = 0}
+      end
       LogFileList[fileName].fileSize = scLog:getSize()
     end
   end
-
-  return logList
 end
 
-local function deleteEmptyLogFileAndFileEntry(fileName)
-  assert(fileName, "Nil log file name")
-  local fileEntry = LogFileList[fileName]
-  if fileEntry.fileSize <= 0 then
-    vpos.file.delete("VPOS:" .. fileName)
-    LogFileList[fileName] = nil -- delete the log file entry
-  end
+local function deleteLogFileAndFileElement(fileName)
+  assert(fileName)
+
+  -- delete the log file
+  local ok = vpos.file.delete("VPOS:" .. fileName)
+  assert(ok)
+
+  -- delete the log file element
+  assert(LogFileList[fileName])
+  LogFileList[fileName] = nil
 end
 
-local function deleteAllEmptyLogFilesAndFileEntries()
-  for fileName, _ in pairs(LogFileList) do
-    deleteEmptyLogFileAndFileEntry(fileName)
+local function deleteEmptyLogFilesAndFileElements()
+  for fileName, fileElem in pairs(LogFileList) do
+    if fileElem.fileSize <= 0 then deleteLogFileAndFileElement(fileName) end
   end
 end
 
 local function determineLogFileToUpload()
   local fileNameToUpload = nil
-  local fileEntryToUpload = {}
   local minCounter = math.maxinteger
 
-  -- get the first log file entry with the minimum upload counter  
-  for fileName, fileEntry in pairs(LogFileList) do
-    if fileEntry.uploadCounter <= minCounter then
+  -- get the first log file element with the minimum upload counter  
+  for fileName, fileElem in pairs(LogFileList) do
+    assert(fileElem.uploadCounter)
+    if fileElem.uploadCounter <= minCounter then
       fileNameToUpload = fileName
-      fileEntryToUpload = fileEntry
-      minCounter = fileEntry.uploadCounter
+      minCounter = fileElem.uploadCounter
     end
   end
 
-  return fileNameToUpload, fileEntryToUpload
+  return fileNameToUpload
 end
 
-local function uploadChunkOfLogFileLines(fileName, fileEntry)
-  local chunkSize = 2^14 -- 16 KB
+local function isRecentLogLine(line)
+  -- we'll consider the log line as being recent upon encountering exceptions:
 
-  --while read do
-  --   
-  --end
+  local ok, decomposedMsg = pcall(decomposeOfflineMessageString, line)
+  if not ok or decomposedMsg == nil then return true end
 
-  return chunkSize
+  local decomposedDate
+  ok, decomposedDate = pcall(decomposeISODate, decomposedMsg.sentIsoDate)
+  if not ok or decomposedDate == nil then return true end
+      
+  -- compare the dates:
+
+  local date = vpos.datetime.DateTime()
+
+  date:add(vpos.datetime.DateField.Day, -UPLOAD_LOG_LINE_AGE_IN_DAYS);
+  local refUnixTime = date:getUnixTime()
+
+  date:setDate(decomposedDate.day, decomposedDate.month, decomposedDate.year)
+  date:setTime(decomposedDate.hour, decomposedDate.minute, decomposedDate.second)
+
+  return date:getUnixTime() >= refUnixTime
 end
 
-local function trimLogFileChunkFromStart(fileName, startSize)
-  assert(fileName, "Nil log file name")
-  local fileEntry = LogFileList[fileName]
+local function uploadChunkOfLogFileLines(fileName)
+  assert(fileName)
+  local fileElem = LogFileList[fileName];
+  assert(fileElem)
 
-end
+  local uploadedSize = 0
+  local processedSize = 0
 
-local function updateLogFileUploadCounter(fileName)
-  assert(fileName, "Nil log file name")
-  local fileEntry = LogFileList[fileName];
-  if fileEntry ~= nil then
-    assert(fileEntry.uploadCounter, "No upload counter in log file entry '" .. fileName .. "'");
-    fileEntry.uploadCounter = fileEntry.uploadCounter + 1
+  -- @todo SHOULD it be "rb"?
+  local fileHandle = assert(io.open("VPOS:" .. fileName, "r")) -- open log file
+  if not fileHandle then
+    -- @todo SHOULD we log something here
+    return uploadedSize
   end
+
+  fileHandle:seek("set", fileElem.readOffset)
+
+  while uploadedSize < LOG_CHUNK_SIZE_TO_UPLOAD do
+    local line = fileHandle:read("L")
+    if not line then break end
+
+    processedSize = processedSize + string.len(line)
+    -- @todo Trim end CR-LF from line ?
+
+    if isRecentLogLine(line) then
+      ListPushLeft()
+    end
+
+  end
+
+  fileHandle:close()
+  return processedSize
+end
+
+local function updateOrDeleteLogFileElementAndFile(fileName, processedSize)
+  assert(fileName, "Nil log file name")
+  local fileElem = LogFileList[fileName];
+  assert(fileElem)
+
+  -- update the read position for the next chunk upload from this log file
+  assert(fileElem.readOffset)
+  fileElem.readOffset = fileElem.readOffset + processedSize
+
+  -- increment the upload counter
+  assert(fileElem.uploadCounter)
+  fileElem.uploadCounter = fileElem.uploadCounter + 1
+end
+
+local function deleteFullyProcessedLogFileAndFileElement(fileName)
+  assert(fileName)
+  local fileElem = LogFileList[fileName];
+  assert(fileElem)
+  assert(fileElem.readOffset and fileElem.fileSize)
+  if fileElem.readOffset >= fileElem.fileSize then deleteLogFileAndFileElement(fileName) end
 end
 
 function uploadOfflineLogs()
+  -- @todo Add offline setting check
   if not isUploadRound() then return end
   if not areUploadConditionsMet() then resetUploadWatch() return end
 
   updateLogFileList()
-  deleteAllEmptyLogFilesAndFileEntries()
+  deleteEmptyLogFilesAndFileElements()
 
-  local fileName, fileEntry = determineLogFileToUpload()
-  if fileName ~= nil and fileEntry ~= nil then
-    local sentSize = uploadChunkOfLogFileLines(fileName, fileEntry)
-    trimLogFileChunkFromStart(fileName, fileEntry, sentSize)
-    updateLogFileUploadCounter(fileName)
-    deleteEmptyLogFileAndFileEntry(fileName)
+  local fileName, fileElem = determineLogFileToUpload()
+  if fileName ~= nil and fileElem ~= nil then
+    local processedSize = uploadChunkOfLogFileLines(fileName)
+    updateOrDeleteLogFileElementAndFile(fileName, processedSize)
+    deleteFullyProcessedLogFileAndFileElement(fileName)
   end
 
   resetUploadWatch()
