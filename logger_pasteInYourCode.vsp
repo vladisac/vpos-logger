@@ -93,7 +93,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
 
   -- private fields
   local logTab =  {
-                    level = level or "Info",
+                    level = level or "info",
                     logType = logType or "online",
                     logSize = logSize or 300,
                     url = url or "http://logs2.papertrailapp.com:21645",
