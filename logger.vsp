@@ -654,7 +654,7 @@ end
 function sendMessage(message)
   local ok, outStr = pcall(formatMessage, message)
   assert(ok, outStr)
-  local _,_, scriptFN = string.find(message.scriptName, "(.+)%.(%a+)")
+  local _, _, scriptFN = string.find(message.scriptName, "(.+)%.(%a+)")
 
   if not ok then
     outStr = "<11>1 " .. dateISO() .. " " .. COMP_NAME .. POS_NAME ..

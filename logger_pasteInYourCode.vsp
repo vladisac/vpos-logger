@@ -15,24 +15,16 @@ local logLevel = {
   Trace = "trace"
 }
 
----
--- Debug level
--- @global LOG_LEVEL
+---Minimum log level.
 LOG_LEVEL = logLevel.Info
 
----
--- Size of the log file in bytes
--- @global LOG_SIZE
+---Size of the log file in bytes.
 LOG_SIZE = 300
 
----
--- Switch to online or offline/local logs
--- @global LOG_TYPE
+---Switch to online or offline/local logs.
 LOG_TYPE = "online"
 
----
--- URL where logs are shown on papertrail
--- @global URL_PAPERTRAIL
+---URL where logs are shown on papertrail.
 URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
 
 -----------------------------------------------------------------------------
