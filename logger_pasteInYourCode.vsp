@@ -97,7 +97,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
                     level = level or logLevel.Info,
                     logType = logType or "online",
                     logSize = logSize or 300,
-                    url = url or "http://logs2.papertrailapp.com:21645",
+                    url = url or URL_PAPERTRAIL,
                     scriptName = scriptName or " ",
                     scriptVersion = scriptVersion or "0",
                     scriptUpdate = scriptUpdate or " ",
@@ -291,7 +291,7 @@ function testOff()
   initTab.LOGS.LOG_LEVEL = logLevel.Off
   initTab.LOGS.LOG_TYPE = "offline"
   initTab.LOGS.LOG_SIZE = 1000
-  initTab.LOGS.URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
+  initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL
 
   readIni()
 

@@ -3,7 +3,7 @@
 -- Script name: logger.vsp
 -- Author: Vlad Isac
 -- Date: 03/2020
--- Description: use metadata and queue for sending log messages to url (eg http://logs6.papertrailapp.com:17732 )
+-- Description: use metadata and queue for sending log messages to url (e.g. http://logs6.papertrailapp.com:17732 )
 
 
 --*************************************************************
@@ -20,10 +20,13 @@ local logLevel = {
   Dev   = "dev"
 }
 
+---URL where logs are shown on papertrail
+URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
+
 --- Company name
 COMP_NAME = ""
 --- POS name
-POSNAME = ""
+POS_NAME = ""
 
 --- Interval in milliseconds, at which the script timer fires events for logging.
 LOG_TIMER_INTERVAL = 300
@@ -355,7 +358,7 @@ function sendFromQueue(q)
         writeMD(q)
       else
         ListPushLeft({scriptName="logger.vsp",
-              url="logs6.papertrailapp.com:17732",
+              url=URL_PAPERTRAIL,
               logType="online",
               logSize=300,
               priority="11",
@@ -364,7 +367,7 @@ function sendFromQueue(q)
       end
     else
       ListPushLeft({scriptName="logger.vsp",
-              url="logs6.papertrailapp.com:17732",
+              url=URL_PAPERTRAIL,
               logType="online",
               logSize=300,
               priority="11",
@@ -388,7 +391,7 @@ function handleQueue(q)
       eraseQueue(q)
 
       ListPushLeft({scriptName="logger.vsp",
-              url="logs6.papertrailapp.com:17732",
+              url=URL_PAPERTRAIL,
               logType="online",
               logSize=300,
               priority="11",
@@ -406,7 +409,7 @@ function handleQueue(q)
         assert(ok, resp)
         if not ok then
           ListPushLeft({scriptName="logger.vsp",
-                url="logs6.papertrailapp.com:17732",
+                url=URL_PAPERTRAIL,
                 logType="online",
                 logSize=300,
                 priority="11",
@@ -590,7 +593,7 @@ function sendMessage(message)
   local _,_, scriptFN = string.find(message.scriptName, "(.+)%.(%a+)")
 
   if not ok then
-    outStr = "<11>1 " .. dateISO() .. " " .. COMP_NAME .. POSNAME ..
+    outStr = "<11>1 " .. dateISO() .. " " .. COMP_NAME .. POS_NAME ..
              " logger.vsp - - - ________PCALL error:" .. tostring(outStr) .. "\n"
   end
 
@@ -824,7 +827,7 @@ local function initSettings()
     COMP_NAME = string.lower(vpos.systeminfo.Company():getName())
     COMP_NAME = COMP_NAME:gsub("sc", ""):gsub(" ", "")
     COMP_NAME = COMP_NAME:sub(1, 4) .. "_"
-    POSNAME = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
+    POS_NAME = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
 end
 
 local function initLogList()
