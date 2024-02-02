@@ -10,6 +10,7 @@
 --- Global settings (read-only initialized variables) and constants
 -- @section Global settings and constants
 
+---@enum logLevel
 local logLevel = {
   Off   = "off",
   Error = "error",
@@ -40,7 +41,7 @@ LOG_CHUNK_SIZE_TO_UPLOAD = 2^14 -- 16 KB
 UPLOAD_LOG_LINE_AGE_IN_DAYS = 30
 
 --- ISO 8601 date constants
-ISO_DATE = {
+ISODATE = {
   DATE_SEP      = "-", --- separator between date parts
   TIME_MARK     = "T", --- time mark/sign between the date and time sections
   TIME_SEP      = ":", --- separator between the time parts and respectively time zone parts
@@ -48,18 +49,18 @@ ISO_DATE = {
   TZ_PLUS_MARK  = "+", --- time zone minus mark/sign
   TZ_MINUS_MARK = "-", --- time zone UTC mark/sign
 
-  BYTE_DATE_SEP      = ISO_DATE.DATE_SEP:byte(1),
-  BYTE_TIME_MARK     = ISO_DATE.TIME_MARK:byte(1),
-  BYTE_TIME_SEP      = ISO_DATE.TIME_SEP:byte(1),
-  BYTE_TZ_UTC_MARK   = ISO_DATE.TZ_UTC_MARK:byte(1),
-  BYTE_TZ_PLUS_MARK  = ISO_DATE.TZ_PLUS_MARK:byte(1),
-  BYTE_TZ_MINUS_MARK = ISO_DATE.TZ_MINUS_MARK:byte(1),
+  BYTE_DATE_SEP      = ISODATE.DATE_SEP:byte(1),
+  BYTE_TIME_MARK     = ISODATE.TIME_MARK:byte(1),
+  BYTE_TIME_SEP      = ISODATE.TIME_SEP:byte(1),
+  BYTE_TZ_UTC_MARK   = ISODATE.TZ_UTC_MARK:byte(1),
+  BYTE_TZ_PLUS_MARK  = ISODATE.TZ_PLUS_MARK:byte(1),
+  BYTE_TZ_MINUS_MARK = ISODATE.TZ_MINUS_MARK:byte(1),
 }
 
 
 --*************************************************************
---- Global private variables
--- @section Global private variables
+--- Global variables
+-- @section Global variables
 
 assert = function(...) end
 
@@ -70,11 +71,9 @@ logList = {}
 -- @global offlineCounter
 offlineCounter = 0
 
---- Table containing information on offline saved logs, for uploading them.
--- @global LogFileList
+---Table containing information on offline saved logs, for uploading them.
 LogFileList = {}
---- Stop watch for uploading offline saved logs.
--- @global UploadStopWatch
+---Stop watch for uploading offline saved logs.
 UploadStopWatch = vpos.datetime.StopWatch()
 
 
@@ -82,29 +81,32 @@ UploadStopWatch = vpos.datetime.StopWatch()
 --- Helper functions
 -- @section Helper functions
 
---- Formats the given or current date as per ISO 8601 format.
--- Formats the given or the current date according to the ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`.
--- Length of returned date: currently, only the first 19 of the 25 characters are returned.
--- Example of returned date: `2016-11-09T04:25:28` (the full date would be `2016-11-09T04:25:28+01:00`).
--- @tparam[opt] date DateTime Date to be formatted; if nil, the current date is used
--- @treturn string Date formatted as per ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
+---Formats the given or current date according to the ISO 8601 format
+---`yyyy-mm-ddThh:mm:ss±hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
+---(only the first 19 out of the 25 characters).<br/>
+---Example of returned date: `2016-11-09T04:25:28` (the full date could be
+---`2016-11-09T04:25:28+01:00`).
+---@param date? vpos.datetime.DateTime? Date to be formatted; if `nil`, the current date is used
+---@return string # Date formatted as per ISO 8601 format.
 local function dateISO(date)
-  local date = date or vpos.datetime.DateTime()
+  local date = date or vpos.datetime.DateTime() ---@diagnostic disable-line: redefined-local
   local day, month, year = date:getDate()
   local hour, minute, second = date:getTime()
 
   return tostring(year) .. "-" .. string.format("%02d", month) .. "-" .. string.format("%02d", day) .. "T" ..
          string.format("%02d", hour) .. ":" .. string.format("%02d", minute) .. ":" .. string.format("%02d", second)
+--  return string.format("%s-%02d-%02dT%02d:%02d:%02d",
+--                       tostring(year), month, day, hour, minute, second)
 end
 
---- Decomposes the given date in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`.
--- @tparam isoDate string The date in ISO 8601 format.
--- @treturn boolean `true` on successful decomposition, otherwise `false` 
--- @treturn table|string On failure returns an error string. Otherwise, returns a
--- table with all of the ISO date parts:
---   * `year`, `month`, `day` integer
---   * `hours`, `minute`, `second` integer
---   * `timezoneHour`, `timezoneMinute` integer 
+---Decomposes the given date in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`.
+---NOTE that the minimum accepted ISO date is `yyyy-mm-ddThh:mm:ss` (length 19).<br/>
+---Raises an error if the string is not an ISO 8601 date or a date part can't be converted.
+---@param isoDate string The date in ISO 8601 format.
+---@return table # A table with all of the ISO date parts:
+---   * `year`, `month`, `day` integer
+---   * `hours`, `minute`, `second` integer
+---   * `timezoneHour`, `timezoneMinute` integer 
 local function decomposeISODate(isoDate)
   assert(isoDate)
 
@@ -113,48 +115,52 @@ local function decomposeISODate(isoDate)
 
   local dateLen = string.len(isoDate)
   if dateLen < 19 then
-    return false, "Date string is too short to be ISO 8601 or is incomplete"
+    error("String is too short to be an ISO 8601 date or is incomplete (down to seconds required)")
   end
-  if string.byte(isoDate, 5)  ~= ISO_DATE.BYTE_DATE_SEP          or
-     string.byte(isoDate, 8)  ~= ISO_DATE.BYTE_DATE_SEP          or
-     string.byte(isoDate, 11) ~= ISO_DATE.BYTE_TIME_MARK         or
-     string.byte(isoDate, 14) ~= ISO_DATE.BYTE_TIME_SEP          or
-     string.byte(isoDate, 17) ~= ISO_DATE.BYTE_TIME_SEP          or
+  if string.byte(isoDate, 5)  ~= ISODATE.BYTE_DATE_SEP          or
+     string.byte(isoDate, 8)  ~= ISODATE.BYTE_DATE_SEP          or
+     string.byte(isoDate, 11) ~= ISODATE.BYTE_TIME_MARK         or
+     string.byte(isoDate, 14) ~= ISODATE.BYTE_TIME_SEP          or
+     string.byte(isoDate, 17) ~= ISODATE.BYTE_TIME_SEP          or
      (dateLen >= 22 and
-      (string.byte(isoDate, 20) ~= ISO_DATE.BYTE_TZ_UTC_MARK  or
-       string.byte(isoDate, 20) ~= ISO_DATE.BYTE_TZ_PLUS_MARK or
-       string.byte(isoDate, 20) ~= ISO_DATE.BYTE_TZ_MINUS_MARK)) or
-     (dateLen >= 25 and string.byte(isoDate, 23) ~= ISO_DATE.BYTE_TIME_SEP) then
-    return false, "Date string is not in ISO 8601 format"
+      (string.byte(isoDate, 20) ~= ISODATE.BYTE_TZ_UTC_MARK  or
+       string.byte(isoDate, 20) ~= ISODATE.BYTE_TZ_PLUS_MARK or
+       string.byte(isoDate, 20) ~= ISODATE.BYTE_TZ_MINUS_MARK)) or
+     (dateLen >= 25 and string.byte(isoDate, 23) ~= ISODATE.BYTE_TIME_SEP) then
+    error("String is not an ISO 8601 date")
   end
 
   local year = tonumber(string.sub(isoDate, 1, 4))
-  if year == nil then return false, "Can't convert year to number" end
+  if not year then error("Can't convert year to number") end
   local month = tonumber(string.sub(isoDate, 6, 7))
-  if month == nil then return false, "Can't convert month to number" end
+  if not month then error("Can't convert month to number") end
   local day = tonumber(string.sub(isoDate, 9, 10))
-  if day == nil then return false, "Can't convert day to number" end
+  if not day then error("Can't convert day to number") end
 
   local hours = tonumber(string.sub(isoDate, 12, 13))
-  if hours == nil then return false, "Can't convert hour to number" end
+  if not hours then error("Can't convert hour to number") end
   local minute = tonumber(string.sub(isoDate, 15, 16))
-  if minute == nil then return false, "Can't convert minute to number" end
+  if not minute then error("Can't convert minute to number") end
   local second = tonumber(string.sub(isoDate, 18, 19))
-  if second == nil then return false, "Can't convert second to number" end
+  if not second then error("Can't convert second to number") end
 
   local timezoneHour, timezoneMinute
   if dateLen >= 22 then
     timezoneHour = tonumber(string.sub(isoDate, 12, 13))
-    if timezoneHour == nil then return false, "Can't convert time zone hour to number" end
+    if not timezoneHour then error("Can't convert time zone hour to number") end
+  else
+    timezoneHour = 0
   end
   if dateLen >= 25 then
     timezoneMinute = tonumber(string.sub(isoDate, 12, 13))
-    if timezoneMinute == nil then return false, "Can't convert time zone minute to number" end
+    if not timezoneMinute then error("Can't convert time zone minute to number") end
+  else
+    timezoneMinute = 0
   end
 
-  return true, {
+  return {
     year = year, month = month, day = day, hours = hours, minute = minute, second = second,
-    timezoneHour = timezoneHour or 0, timezoneMinute = timezoneMinute or 0
+    timezoneHour = timezoneHour, timezoneMinute = timezoneMinute,
   }
 end
 
@@ -517,53 +523,52 @@ end
 --- Message functions
 -- @section Message functions
 
---- Decomposes/Unformats an offline message string/line into its parts.
--- @tparam str string The message string/line
--- @treturn boolean `true` on successful decomposition, otherwise `false` 
--- @treturn table|string On failure returns an error string. Otherwise, returns a
--- table with all of the message string parts:
---   * `sendDate` string: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
---   * `messageLevel` string: the log level
---   * `qFirst`, `qLast` integer: the original queue boundary indexes
---   * `messageBody` string: the actual message;
+---Decomposes/Unformats an offline message string/line into its parts.<br/>
+---Raises an error if a message part can't be determined or converted.
+---@param str string The message string/line
+---@return table  A table with all of the message string parts:
+---  * `sendingIsoDate` string: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
+---  * `messageLevel` string: the log level
+---  * `qFirst`, `qLast` integer: the original queue boundary indexes
+---  * `messageBody` string: the actual message;
 local function decomposeOfflineMessageString(str)
   assert(str)
 
   local k = 1;
   local i, j = string.find(str, " [", k, true)
-  if not i or i <= 1 then return false, "Can't determine send date" end
-  local sentIsoDate = string.sub(str, k, i - 1)
+  if not i or i <= 1 then error("Can't determine send date") end
+  local sendingIsoDate = string.sub(str, k, i - 1)
 
   k = j + 1
   i, j = string.find(str, "] >> ", k, true)
-  if not i or i <= 1 then return false, "Can't determine log level" end
+  if not i or i <= 1 then error("Can't determine log level") end
   local messageLevel = string.sub(str, k, i - 1)
 
   k = j + 1
   i, j = string.find(str, ":", k, true)
-  if not i or i <= 1 then return false, "Can't determine queue first index" end
+  if not i or i <= 1 then error("Can't determine queue first index") end
   local qFirst = tonumber(string.sub(str, k, i - 1))
-  if qFirst == nil then return false, "Can't convert queue first index to number" end
+  if qFirst == nil then error("Can't convert queue first index to number") end
 
   k = j + 1
   i, j = string.find(str, " ", k, true)
-  if not i or i <= 1 then return false, "Can't determine queue last index" end
+  if not i or i <= 1 then error("Can't determine queue last index") end
   local qLast = tonumber(string.sub(str, k, i - 1))
-  if qLast == nil then return false, "Can't convert queue last index to number" end
+  if qLast == nil then error("Can't convert queue last index to number") end
 
   k = j + 1
   local messageBody = string.sub(str, k)
 
-  return true, {
-    sentIsoDate = sentIsoDate, messageLevel = messageLevel,
-    qFirst = qFirst, qLast = qLast, messageBody = messageBody
+  return {
+    sendingIsoDate = sendingIsoDate, messageLevel = messageLevel,
+    qFirst = qFirst, qLast = qLast, messageBody = messageBody,
   }
 end
 
 --- Formats the message by adding information about the script and POS terminal.
--- @tparam table message containing the needed information
--- @tparam bool fallback true if called due to fallback
--- @treturn string outStr log message to send
+--- @param message table Message containing the needed information
+--- @param fallback boolean `true` if called due to fallback
+--- @return string outStr Log message to send
 function formatMessage(message, fallback)
   local outStr = ""
 
@@ -572,7 +577,7 @@ function formatMessage(message, fallback)
     local scriptData = string.format("%s_v:%s", message.scriptName, scriptVersion)
     local trace = (message.messageLevel == "trace" and "[trace] ") or ""
 
-    outStr = "<" .. message.priority .. ">1 " .. message.datetime .. " " .. COMP_NAME .. POSNAME ..
+    outStr = "<" .. message.priority .. ">1 " .. message.datetime .. " " .. COMP_NAME .. POS_NAME ..
              " " .. scriptData .. " - - - " .. trace ..
              message.qFirst .. ":" .. message.qLast .. " " .. message.message .. "\n"
   else
