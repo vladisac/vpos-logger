@@ -515,9 +515,8 @@ end
 -- @tparam string fn2 destination filename
 -- @tparam boolean overwrite flag to overwrite existing destination file
 function file_rename(fn1, fn2, overwrite)
-
-  if not file_exists(fn1) then return nil, string.format("Source file %s is missing!", fn1) end
-  if file_exists(fn2) and not overwrite then return nil, string.format("Destination file %s already exists!", fn2) end
+  if not file_exists(fn1) then return false, string.format("Source file '%s' is missing!", fn1 or "") end
+  if file_exists(fn2) and not overwrite then return false, string.format("Destination file '%s' already exists!", fn2) end
 
   ok, err = vpos.renameFile(fn1, fn2)
   -- if the error is DestinationFileExists and we have to overwrite
