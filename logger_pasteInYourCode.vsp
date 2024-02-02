@@ -6,10 +6,19 @@
 ----------- 1. GLOBAL DEFAULTS: add to top of your code and .ini file --------
 ------------------------------------------------------------------------------
 
+local logLevel = {
+  Off   = "off",
+  Error = "error",
+  Warn  = "warn",
+  Info  = "info",
+  Debug = "debug",
+  Trace = "trace"
+}
+
 ---
 -- Debug level
 -- @global LOG_LEVEL
-LOG_LEVEL = "info"
+LOG_LEVEL = logLevel.Info
 
 ---
 -- Size of the log file in bytes
@@ -34,14 +43,6 @@ URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
 -----------------------------------------------------------------------------
 ----------- 2. LOGGER DEFINITION: add to functions --------------------------
 -----------------------------------------------------------------------------
-
-local logLevel = {
-  Error = "error",
-  Warn = "warn",
-  Info = "info",
-  Debug = "debug",
-  Trace = "trace"
-}
 
 --- Formats the given or current date as per ISO 8601 format.
 -- Formats the given or the current date according to the ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`.
@@ -93,7 +94,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
 
   -- private fields
   local logTab =  {
-                    level = level or "info",
+                    level = level or logLevel.Info,
                     logType = logType or "online",
                     logSize = logSize or 300,
                     url = url or "http://logs2.papertrailapp.com:21645",
@@ -115,7 +116,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
 
   -- send data about the script
   function self.scriptInfo(settings)
-    logTab.messageLevel = "info"
+    logTab.messageLevel = logLevel.Info
     logTab.message = string.format("====== START ======== script:%s __ version:%s __ update:%s __ pv:%s __ serialNo:%s __ ip:%s",
                                     logTab.scriptName, logTab.scriptVersion, logTab.scriptUpdate,
                                     vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion),
@@ -136,7 +137,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if level == logLevel.Trace then
       local now = vpos.datetime.DateTime():getUnixTime() or ""
       logTab.message = now .. "@ " .. (message or "")
-      logTab.messageLevel = "trace"
+      logTab.messageLevel = logLevel.Trace
       logTab.priority = 15
       logData(logTab, full)
     end
@@ -146,7 +147,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   function self.debug(message, full)
     if level == logLevel.Trace or level == logLevel.Debug then
       logTab.message = message or ""
-      logTab.messageLevel = "debug"
+      logTab.messageLevel = logLevel.Debug
       logTab.priority = 15
       logData(logTab, full)
     end
@@ -156,7 +157,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   function self.info(message, full)
     if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info  then
       logTab.message = message or ""
-      logTab.messageLevel = "info"
+      logTab.messageLevel = logLevel.Info
       logTab.priority = 14
       logData(logTab, full)
     end
@@ -166,7 +167,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   function self.warn(message, full)
     if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info  or level == logLevel.Warn then
       logTab.message = message or ""
-      logTab.messageLevel = "warn"
+      logTab.messageLevel = logLevel.Warn
       logTab.priority = 12
       logData(logTab, full)
     end
@@ -177,7 +178,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info  or level == logLevel.Warn or level == logLevel.Error then
       local line = tostring(debug.getinfo(2, "l").currentline) or " "
       logTab.message = string.format("%4s", line) .. ": " .. (message or "")
-      logTab.messageLevel = "error"
+      logTab.messageLevel = logLevel.Error
       logTab.priority = 11
       logData(logTab, true)
     end
@@ -218,15 +219,15 @@ function readIni()
     scriptUpdate = "plsUpdate VPOS"
   end
 
-  if LOG_LEVEL == "off" then
+  if LOG_LEVEL == logLevel.Off then
     -- create a mock "object" with no functionality
     log = {
-      ["scriptInfo"] = function() end,
-      ["trace"] = function() end,
-      ["debug"] = function() end,
-      ["info"] = function() end,
-      ["warn"] = function() end,
-      ["error"] = function() end
+      ["scriptInfo"]   = function() end,
+      [logLevel.Trace] = function() end,
+      [logLevel.Debug] = function() end,
+      [logLevel.Info]  = function() end,
+      [logLevel.Warn]  = function() end,
+      [logLevel.Error] = function() end
     }
   else
     if not file_exists("logger.vsp") then
@@ -234,7 +235,7 @@ function readIni()
       vpos.script.exitScript()
     end
     log = logger(LOG_LEVEL, LOG_TYPE, LOG_SIZE, URL_PAPERTRAIL, scriptName,
-                    scriptVersion, scriptUpdate, posName)
+                 scriptVersion, scriptUpdate, posName)
   end
 
   -- hide passwords from ini files so they are not logged
@@ -287,7 +288,7 @@ function testOff()
   wait:setText("offline off")
   wait:show()
 
-  initTab.LOGS.LOG_LEVEL = "off"
+  initTab.LOGS.LOG_LEVEL = logLevel.Off
   initTab.LOGS.LOG_TYPE = "offline"
   initTab.LOGS.LOG_SIZE = 1000
   initTab.LOGS.URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
@@ -310,7 +311,7 @@ function testOnline()
   wait:setText("online trace")
   wait:show()
 
-  initTab.LOGS.LOG_LEVEL = "trace"
+  initTab.LOGS.LOG_LEVEL = logLevel.Trace
   initTab.LOGS.LOG_TYPE = "online"
   initTab.LOGS.LOG_SIZE = 1000
   initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL

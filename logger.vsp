@@ -7,8 +7,18 @@
 
 
 --*************************************************************
---- Global private settings (read-only initialized variables used as constants)
--- @section Global private settings
+--- Global settings (read-only initialized variables) and constants
+-- @section Global settings and constants
+
+local logLevel = {
+  Off   = "off",
+  Error = "error",
+  Warn  = "warn",
+  Info  = "info",
+  Debug = "debug",
+  Trace = "trace",
+  Dev   = "dev"
+}
 
 --- Company name
 COMP_NAME = ""
@@ -349,7 +359,7 @@ function sendFromQueue(q)
               logType="online",
               logSize=300,
               priority="11",
-              messageLevel="error",
+              messageLevel=logLevel.Error,
               message= err})
       end
     else
@@ -358,7 +368,7 @@ function sendFromQueue(q)
               logType="online",
               logSize=300,
               priority="11",
-              messageLevel="error",
+              messageLevel=logLevel.Error,
               message= err})
     end
   end
@@ -382,7 +392,7 @@ function handleQueue(q)
               logType="online",
               logSize=300,
               priority="11",
-              messageLevel="error",
+              messageLevel=logLevel.Error,
               message= "QUEUE WAS ERASED:"..tostring(resp)})
       local resp2
       ok, resp2 = pcall(writeMD, q)
@@ -400,7 +410,7 @@ function handleQueue(q)
                 logType="online",
                 logSize=300,
                 priority="11",
-                messageLevel="error",
+                messageLevel=logLevel.Error,
                 message= resp})
         end
       end
