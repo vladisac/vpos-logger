@@ -34,6 +34,11 @@ LOG_TIMER_INTERVAL = 300
 --- Interval in milliseconds, at which a new round of uploading offline logs is started.
 UPLOAD_ROUND_INTERVAL = 300000 -- 5 * 60 * 1000 [ms] = 5 [minutes]
 
+--- Log file name of this logger script.
+LOGGER_LOG_NAME = "logger.log"
+--- Backup log file name of this logger script.
+LOGGER_BACKUP_LOG_NAME = "logger.1.log"
+
 --- The chunk size to be uploaded from an offline log file, in an uploaded round. More
 --- than this value might be read and processed.
 LOG_CHUNK_SIZE_TO_UPLOAD = 2^14 -- 16 KB
@@ -143,21 +148,21 @@ local function decomposeIsoDate(isoDate)
   local day = tonumber(string.sub(isoDate, 9, 10))
   if not day then error("Can't convert day to number") end
 
-  local hours = tonumber(string.sub(isoDate, 12, 13))
-  if not hours then error("Can't convert hour to number") end
+  local hour = tonumber(string.sub(isoDate, 12, 13))
+  if not hour then error("Can't convert hour to number") end
   local minute = tonumber(string.sub(isoDate, 15, 16))
   if not minute then error("Can't convert minute to number") end
   local second = tonumber(string.sub(isoDate, 18, 19))
   if not second then error("Can't convert second to number") end
 
   local timezoneHour, timezoneMinute
-  if dateLen >= 22 then
+  if dateLen == 22 then
     timezoneHour = tonumber(string.sub(isoDate, 21, 22))
     if not timezoneHour then error("Can't convert time zone hour to number") end
   else
     timezoneHour = 0
   end
-  if dateLen >= 25 then
+  if dateLen == 25 then
     timezoneMinute = tonumber(string.sub(isoDate, 24, 25))
     if not timezoneMinute then error("Can't convert time zone minute to number") end
   else
@@ -165,7 +170,7 @@ local function decomposeIsoDate(isoDate)
   end
 
   return {
-    year = year, month = month, day = day, hours = hours, minute = minute, second = second,
+    year = year, month = month, day = day, hour = hour, minute = minute, second = second,
     timezoneHour = timezoneHour, timezoneMinute = timezoneMinute,
   }
 end
@@ -623,7 +628,7 @@ local function decomposeOfflineMessageString(str)
 
   local k = 1;
   local i, j = string.find(str, " [", k, true)
-  if not i or i <= 1 then error("Can't determine send date") end
+  if not i or i <= 1 then error("Can't determine sending date") end
   local sendingIsoDate = string.sub(str, k, i - 1)
 
   k = j + 1
@@ -746,39 +751,51 @@ end
 local function updateLogFileList()
   local fileList = vpos.file.getFileList("VPOS")
 
-  -- clear log file elements for files deleted in the mean time
-  for fileName, _ in pairs(LogFileList) do
-    if not fileList[fileName] then LogFileList[fileName] = nil end
+  -- first mark all log files of the previous round of log file elements as missing
+  for _, fileElem in pairs(LogFileList) do
+    fileElem.isMissingFile = true
   end
 
-  -- add new log file elements and update the fileSize for the existing ones
-  for fileName, _ in pairs(fileList) do
-    if fileName ~= "logger.log" and --TODO treat this case separately!
-       get_file_extension_from_name(fileName) == "log" then
+  -- add new log file elements, and update the file size and missing file flag for the existing ones
+  for _, fileName in pairs(fileList) do
+    if fileName == LOGGER_LOG_NAME or fileName == LOGGER_BACKUP_LOG_NAME then
+      --TODO treat this case!
+    elseif get_file_extension_from_name(fileName) == "log" then
       local scLog = vpos.script.Script {scriptURL = "VPOS:" .. fileName}
       if not LogFileList[fileName] then
         LogFileList[fileName] = {readOffset = 0, uploadCounter = 0}
       end
-      LogFileList[fileName].fileSize = scLog:getSize()
+      LogFileList[fileName].fileSize      = scLog:getSize()
+      LogFileList[fileName].isMissingFile = false
     end
   end
 end
 
 local function deleteLogFileAndFileElement(fileName)
   assert(fileName)
+  local fileElem = LogFileList[fileName];
+  assert(fileElem and fileElem.isMissingFile)
 
   -- delete the log file
   local ok = vpos.file.delete("VPOS:" .. fileName)
-  assert(ok)
+  assert((ok and not fileElem.isMissingFile) or (not ok and fileElem.isMissingFile))
+  --TODO add:
+--  if ok and fileElem.isMissingFile then
+--    logDev("Deleted existing 'VPOS:" .. fileName .. "' marked as missing")
+--  elseif not ok and not fileElem.isMissingFile then
+--    logDev("Can't delete 'VPOS:" .. fileName .. "' marked as not missing")
+--  end
 
   -- delete the log file element
-  assert(LogFileList[fileName])
   LogFileList[fileName] = nil
 end
 
-local function deleteEmptyLogFilesAndFileElements()
+local function deleteMissingAndEmptyLogFilesAndFileElements()
   for fileName, fileElem in pairs(LogFileList) do
-    if fileElem.fileSize <= 0 then deleteLogFileAndFileElement(fileName) end
+    assert(fileElem.isMissingFile ~= nil and fileElem.fileSize)
+    if fileElem.isMissingFile or fileElem.fileSize <= 0 then
+      deleteLogFileAndFileElement(fileName)
+    end
   end
 end
 
@@ -804,8 +821,7 @@ end
 local function isRecentLogFileLine(sendingIsoDate)
   assert(sendingIsoDate)
   local ok, decomposedDate = pcall(decomposeIsoDate, sendingIsoDate)
-  -- we'll consider the log line as being recent upon encountering exceptions
-  if not ok then
+  if not ok then -- we'll consider the log line as being recent upon errors
     assert(false, decomposedDate) --- @todo log dev
     return true
   end
@@ -842,7 +858,6 @@ local function uploadRecentLogFileLine(fileName, line)
       messageLevel = logLevel.Info,
       message      = line,
     })
-    return true
   else
     if isNilOrWhitespaceString(decomposedMsg.messageBody) then return false end
     if not isRecentLogFileLine(decomposedMsg.sendingIsoDate) then return false end
@@ -859,6 +874,7 @@ local function uploadRecentLogFileLine(fileName, line)
       message      = decomposedMsg.messageBody,
     })
   end
+  return true
 end
 
 local function uploadChunkOfLogFileLines(fileName)
@@ -870,16 +886,16 @@ local function uploadChunkOfLogFileLines(fileName)
   local processedSize = 0
 
   --TODO SHOULD it be "rb"?
-  local fileHandle, errMsg = io.open("VPOS:" .. fileName, "r") -- open log file
+  local fileHandle, err = io.open("VPOS:" .. fileName, "r") -- open log file
   if not fileHandle then
-    --TODO add: logDev("Can't open file 'VPOS:" .. filename .. "'", errMsg)
+    --TODO add: logDev("Can't open file 'VPOS:" .. filename .. "'", err)
     return uploadedSize
   end
   assert(fileHandle)
 
-  _, errMsg = fileHandle:seek("set", fileElem.readOffset)
-  if errMsg then
-    --TODO add: logDev("Can't seek in file 'VPOS:" .. filename .. "' at pos " .. tostring(fileElem.readOffset), errMsg)
+  _, err = fileHandle:seek("set", fileElem.readOffset)
+  if err then
+    --TODO add: logDev("Can't seek in file 'VPOS:" .. filename .. "' at pos " .. tostring(fileElem.readOffset), err)
     return uploadedSize
   end
 
@@ -905,7 +921,7 @@ local function updateLogFileElement(fileName, processedSize)
   local fileElem = LogFileList[fileName];
   assert(fileElem)
 
-  -- update the read position for the next chunk upload from this log file
+  -- update the read position for the next upload round / chunk upload from this log file
   assert(fileElem.readOffset)
   fileElem.readOffset = fileElem.readOffset + processedSize
 
@@ -929,10 +945,10 @@ function uploadOfflineLogs()
   if not areUploadConditionsMet() then resetUploadWatch() return end
 
   updateLogFileList()
-  deleteEmptyLogFilesAndFileElements()
+  deleteMissingAndEmptyLogFilesAndFileElements()
 
-  local fileName, fileElem = determineLogFileToUpload()
-  if fileName ~= nil and fileElem ~= nil then
+  local fileName = determineLogFileToUpload()
+  if fileName ~= nil then
     local processedSize = uploadChunkOfLogFileLines(fileName)
     updateLogFileElement(fileName, processedSize)
     deleteFullyProcessedLogFileAndFileElement(fileName)
