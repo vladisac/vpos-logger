@@ -72,7 +72,6 @@ assert = function(...) end
 logList = {}
 
 --- Count the number of logging fallbacks to file.
--- @global offlineCounter
 offlineCounter = 0
 
 --- Table containing information on offline saved logs, for uploading them.
@@ -285,7 +284,7 @@ function dumpQueue(q)
   local count = 0
   q.first = nil
   q.last = nil
-  for k,v in pairs(q) do
+  for k, v in pairs(q) do
       message = message .. v.scriptName .. " " .. v.datetime .. " " .. v.message .. "\n"
       size = size + #message
       if size > 5000 then
@@ -615,14 +614,14 @@ local function mapMessageLevelToPriority(messageLevel)
   else                            assert(false, "Unrecognized message level");  return 14 end
 end
 
----Decomposes/Unformats an offline message string/line into its parts.<br/>
----Raises an error if a message part can't be determined or converted.
+--- Decomposes/Unformats an offline message string/line into its parts.<br/>
+--- Raises an error if a message part can't be determined or converted.
 ---@param str string The message string/line
----@return table  A table with all of the message string parts:
+---@return table # A table with all of the message string parts:
 ---  * `sendingIsoDate` string: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
 ---  * `messageLevel` string: the log level
 ---  * `qFirst`, `qLast` integer: the original queue boundary indexes
----  * `messageBody` string: the actual message;
+---  * `messageBody` string: the actual message content
 local function decomposeOfflineMessageString(str)
   assert(str)
 
@@ -667,7 +666,7 @@ function formatMessage(message, fallback)
   if message.logType == "online" and not fallback then
     local scriptVersion = tostring(vpos.tables.Table(806):getData(message.scriptName, 15) or 0)
     local scriptData = string.format("%s_v:%s", message.scriptName, scriptVersion)
-    local trace = (message.messageLevel == "trace" and "[trace] ") or ""
+    local trace = (message.messageLevel == logLevel.Trace and "[trace] ") or ""
 
     outStr = "<" .. message.priority .. ">1 " .. message.datetime .. " " .. COMP_NAME .. POS_NAME ..
              " " .. scriptData .. " - - - " .. trace ..
@@ -698,6 +697,7 @@ function sendMessage(message)
     logURL = message.url
     logURL = logURL:gsub("http://", "")
     _, _, logURL, logPORT = logURL:find("(.-):(%d+)")
+
     -- retry to create the socket only after several logs were locally written
     if (not socket and (offlineCounter == 0 or offlineCounter >= 9)) or offlineCounter >= 9 then
       socket = vpos.communication.Socket(logURL, logPORT, 3000)
