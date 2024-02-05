@@ -99,34 +99,41 @@ local function dateISO(date)
 --                       tostring(year), month, day, hour, minute, second)
 end
 
----Decomposes the given date in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`.
----NOTE that the minimum accepted ISO date is `yyyy-mm-ddThh:mm:ss` (length 19).<br/>
+--- Decomposes the given date in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm` (length 25).
+--- NOTE that the minimum accepted ISO date is `yyyy-mm-ddThh:mm:ss` (length 19);
+--- also accepted is `yyyy-mm-ddThh:mm:ssZ` (UTC length 20) and `yyyy-mm-ddThh:mm:ss±hh`
+--- (length 22).<br/>
 ---Raises an error if the string is not an ISO 8601 date or a date part can't be converted.
 ---@param isoDate string The date in ISO 8601 format.
 ---@return table # A table with all of the ISO date parts:
 ---   * `year`, `month`, `day` integer
 ---   * `hours`, `minute`, `second` integer
 ---   * `timezoneHour`, `timezoneMinute` integer 
-local function decomposeISODate(isoDate)
+local function decomposeIsoDate(isoDate)
   assert(isoDate)
 
   -- ISO 8601: y y y y - m m - d d T h h : m m : s s ± h h : m m
-  -- Position: 0       5     8     11    14    17    20    23  25
+  -- Position: 1       5     8     11    14    17    20    23  25
 
   local dateLen = string.len(isoDate)
   if dateLen < 19 then
     error("String is too short to be an ISO 8601 date or is incomplete (down to seconds required)")
+  elseif dateLen > 25 then
+    error("String is too long to be an ISO 8601 date")
   end
-  if string.byte(isoDate, 5)  ~= ISODATE.BYTE_DATE_SEP          or
-     string.byte(isoDate, 8)  ~= ISODATE.BYTE_DATE_SEP          or
-     string.byte(isoDate, 11) ~= ISODATE.BYTE_TIME_MARK         or
-     string.byte(isoDate, 14) ~= ISODATE.BYTE_TIME_SEP          or
-     string.byte(isoDate, 17) ~= ISODATE.BYTE_TIME_SEP          or
-     (dateLen >= 22 and
-      (string.byte(isoDate, 20) ~= ISODATE.BYTE_TZ_UTC_MARK  or
-       string.byte(isoDate, 20) ~= ISODATE.BYTE_TZ_PLUS_MARK or
-       string.byte(isoDate, 20) ~= ISODATE.BYTE_TZ_MINUS_MARK)) or
-     (dateLen >= 25 and string.byte(isoDate, 23) ~= ISODATE.BYTE_TIME_SEP) then
+  if string.byte(isoDate, 5)  ~= ISODATE.BYTE_DATE_SEP                        or
+     string.byte(isoDate, 8)  ~= ISODATE.BYTE_DATE_SEP                        or
+     string.byte(isoDate, 11) ~= ISODATE.BYTE_TIME_MARK                       or
+     string.byte(isoDate, 14) ~= ISODATE.BYTE_TIME_SEP                        or
+     string.byte(isoDate, 17) ~= ISODATE.BYTE_TIME_SEP                        or
+     (dateLen == 20 and string.byte(isoDate, 20) ~= ISODATE.BYTE_TZ_UTC_MARK) or
+     (dateLen == 22 and
+      (string.byte(isoDate, 20) ~= ISODATE.BYTE_TZ_PLUS_MARK or
+       string.byte(isoDate, 20) ~= ISODATE.BYTE_TZ_MINUS_MARK))               or
+     (dateLen == 25 and
+      (string.byte(isoDate, 20) ~= ISODATE.BYTE_TZ_PLUS_MARK  or
+       string.byte(isoDate, 20) ~= ISODATE.BYTE_TZ_MINUS_MARK or
+       string.byte(isoDate, 23) ~= ISODATE.BYTE_TIME_SEP)) then
     error("String is not an ISO 8601 date")
   end
 
@@ -146,13 +153,13 @@ local function decomposeISODate(isoDate)
 
   local timezoneHour, timezoneMinute
   if dateLen >= 22 then
-    timezoneHour = tonumber(string.sub(isoDate, 12, 13))
+    timezoneHour = tonumber(string.sub(isoDate, 21, 22))
     if not timezoneHour then error("Can't convert time zone hour to number") end
   else
     timezoneHour = 0
   end
   if dateLen >= 25 then
-    timezoneMinute = tonumber(string.sub(isoDate, 12, 13))
+    timezoneMinute = tonumber(string.sub(isoDate, 24, 25))
     if not timezoneMinute then error("Can't convert time zone minute to number") end
   else
     timezoneMinute = 0
@@ -196,7 +203,9 @@ end
 ---@param str any The string
 ---@return boolean `true` if the string is nil or empty or only whitespaces, otherwise `false`
 local function isNilOrWhitespaceString(str)
-  return str == nil or #string.gsub(str, "^%s*(.-)%s*$", "%1") == 0
+  if not str or str:len() == 0 then return true end
+  return (str:find("^%s+$")) ~= nil
+--  return not str or #string.gsub(str, "^%s*(.-)%s*$", "%1") == 0
 end
 
 
@@ -438,6 +447,26 @@ end
 --**************************************************************
 --- File functions
 -- @section File functions
+
+--- Gets the base file name, namely the file name without the extension, from the file name
+--- (without a path).
+---@param fileName string? The file name (without a path)
+---@return string? # The base file name on successful extraction, otherwise `nil`
+local function get_file_extension_from_name(fileName)
+  if not fileName then return nil end
+  local _,_, _, fileExt = string.find(fileName, "(.+)%.(%w+)")
+  return fileExt
+end
+
+--- Gets the base file name, namely the file name without the extension, from the file name
+--- (without a path).
+---@param fileName string? The file name (without a path)
+---@return string? # The base file name on successful extraction, otherwise `nil`
+local function get_base_file_name_from_name(fileName)
+  if not fileName then return nil end
+  local _,_, baseFileName, _ = string.find(fileName, "(.+)%.(%w+)")
+  return baseFileName
+end
 
 ---Gets the base file name, namely the file name without the extension, from the file path.
 ---@param filePath string? The file path
@@ -725,7 +754,8 @@ local function updateLogFileList()
 
   -- add new log file elements and update the fileSize for the existing ones
   for fileName, _ in pairs(fileList) do
-    if string.find(fileName, ".log") then
+    if fileName ~= "logger.log" and --TODO treat this case separately!
+       get_file_extension_from_name(fileName) == "log" then
       local scLog = vpos.script.Script {scriptURL = "VPOS:" .. fileName}
       if not LogFileList[fileName] then
         LogFileList[fileName] = {readOffset = 0, uploadCounter = 0}
@@ -774,7 +804,7 @@ end
 ---@return boolean # `true` if the log file line / message string is recent enough to be uploaded; otherwise `false`
 local function isRecentLogFileLine(sendingIsoDate)
   assert(sendingIsoDate)
-  local ok, decomposedDate = pcall(decomposeISODate, sendingIsoDate)
+  local ok, decomposedDate = pcall(decomposeIsoDate, sendingIsoDate)
   -- we'll consider the log line as being recent upon encountering exceptions
   if not ok then
     assert(false, decomposedDate) --- @todo log dev
