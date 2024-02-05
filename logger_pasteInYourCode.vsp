@@ -36,11 +36,11 @@ URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
 ----------- 2. LOGGER DEFINITION: add to functions --------------------------
 -----------------------------------------------------------------------------
 
----Formats the given or current date according to the ISO 8601 format
----`yyyy-mm-ddThh:mm:ss±hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
----(only the first 19 out of the 25 characters).<br/>
----Example of returned date: `2016-11-09T04:25:28` (the full date could be
----`2016-11-09T04:25:28+01:00`).
+--- Formats the given or current date according to the ISO 8601 format
+--- `yyyy-mm-ddThh:mm:ss±hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
+--- (only the first 19 out of the 25 characters).<br/>
+--- Example of returned date: `2016-11-09T04:25:28` (the full date could be
+--- `2016-11-09T04:25:28+01:00`).
 ---@param date? vpos.datetime.DateTime? Date to be formatted; if `nil`, the current date is used
 ---@return string # Date formatted as per ISO 8601 format.
 local function dateISO(date)

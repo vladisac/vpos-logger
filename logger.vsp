@@ -21,7 +21,7 @@ local logLevel = {
   Dev   = "dev"
 }
 
----URL where logs are shown on papertrail
+--- URL where logs are shown on papertrail
 URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
 
 --- Company name
@@ -71,9 +71,9 @@ logList = {}
 -- @global offlineCounter
 offlineCounter = 0
 
----Table containing information on offline saved logs, for uploading them.
+--- Table containing information on offline saved logs, for uploading them.
 LogFileList = {}
----Stop watch for uploading offline saved logs.
+--- Stop watch for uploading offline saved logs.
 UploadStopWatch = vpos.datetime.StopWatch()
 
 
@@ -81,11 +81,11 @@ UploadStopWatch = vpos.datetime.StopWatch()
 --- Helper functions
 -- @section Helper functions
 
----Formats the given or current date according to the ISO 8601 format
----`yyyy-mm-ddThh:mm:ss±hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
----(only the first 19 out of the 25 characters).<br/>
----Example of returned date: `2016-11-09T04:25:28` (the full date could be
----`2016-11-09T04:25:28+01:00`).
+--- Formats the given or current date according to the ISO 8601 format
+--- `yyyy-mm-ddThh:mm:ss±hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
+--- (only the first 19 out of the 25 characters).<br/>
+--- Example of returned date: `2016-11-09T04:25:28` (the full date could be
+--- `2016-11-09T04:25:28+01:00`).
 ---@param date? vpos.datetime.DateTime? Date to be formatted; if `nil`, the current date is used
 ---@return string # Date formatted as per ISO 8601 format.
 local function dateISO(date)
@@ -172,14 +172,14 @@ local function decomposeIsoDate(isoDate)
 end
 
 --- Clones the object in a custom way.
--- If the object is a table and for all its table fields recursively, it does a deep
--- clone. For all non-table fields recursively, or if the object is not a table, it
--- does a shallow clone.
--- There are two aspects this function does not handle:
--- * metatables
--- * recursive tables.
--- @param obj any The object to be cloned
--- @return any The cloned object
+--- If the object is a table and for all its table fields recursively, it does a deep
+--- clone. For all non-table fields recursively, or if the object is not a table, it
+--- does a shallow clone.
+--- There are two aspects this function does not handle:
+---* metatables
+---* recursive tables.
+---@param obj any The object to be cloned
+---@return any # The cloned object
 local function cloneTablesDeepOthersShallow(obj)
   if type(obj) ~= 'table' then return obj end
 
@@ -191,15 +191,15 @@ local function cloneTablesDeepOthersShallow(obj)
 end
 
 --- Shows the status of the fiscal printer.
--- @tparam string msg message to be shown as status
--- @tparam number subNumber the ID of the view where the status is shown
+---@param msg string Message to be shown as status
+---@param subNumber number The ID of the view where the status is shown
 local function showFiscalPrinterStatus(msg, subNumber)
   local wndSubNum = subNumber or 69
   local gestoInfo = vpos.view.LayoutWindow(wndSubNum)
   gestoInfo:setText(msg)
 end
 
----Determines if a string is nil or empty, or contains only whitespaces.
+--- Determines if a string is nil or empty, or contains only whitespaces.
 ---@param str any The string
 ---@return boolean `true` if the string is nil or empty or only whitespaces, otherwise `false`
 local function isNilOrWhitespaceString(str)
@@ -468,9 +468,9 @@ local function get_base_file_name_from_name(fileName)
   return baseFileName
 end
 
----Gets the base file name, namely the file name without the extension, from the file path.
+--- Gets the base file name, namely the file name without the extension, from the file path.
 ---@param filePath string? The file path
----@return string? # The base file name on successful extraction, otherwise `nil`.
+---@return string? # The base file name on successful extraction, otherwise `nil`
 local function get_base_file_name(filePath)
   if not filePath then return nil end
 
