@@ -742,7 +742,7 @@ local function updateLogFileList()
     if get_file_extension_from_name(fileName) == "log" then
       local scLog = vpos.script.Script {scriptURL = "VPOS:" .. fileName}
       if not LogFileList[fileName] then
-        LogFileList[fileName] = {readOffset = 0, uploadCounter = 0}
+        LogFileList[fileName] = {readOffset = 0, uploadCounter = 0} -- lastIsoDate = nil
       end
       LogFileList[fileName].fileSize      = scLog:getSize()
       LogFileList[fileName].isMissingFile = false
@@ -753,7 +753,7 @@ end
 local function deleteLogFileAndFileElement(fileName)
   assert(fileName)
   local fileElem = LogFileList[fileName];
-  assert(fileElem and fileElem.isMissingFile)
+  assert(fileElem and fileElem.isMissingFile ~= nil)
 
   -- delete the log file
   local ok = vpos.file.delete("VPOS:" .. fileName)
@@ -802,41 +802,67 @@ function decomposeLogFileLine(fileName, line)
   end
 end
 
----
----@param sendingIsoDate string The sending ISO date of a log file line / message string
----@return boolean # `true` if the log file line / message string is recent enough to be uploaded; otherwise `false`
-local function isRecentLogFileLine(sendingIsoDate)
-  assert(sendingIsoDate)
-  local ok, decomposedDate = pcall(decomposeIsoDate, sendingIsoDate)
-  if not ok then -- we'll consider the log line as being recent upon errors
+--- Determines if a log file line / message string is recent enough for uploading.
+---@param decomposedDate table The decomposed sending ISO date of a log file line / message string
+---@return boolean # `true` if the log file line is recent enough for uploading, otherwise `false`
+local function isRecentLogFileLine(decomposedDate)
+  assert(decomposedDate)
+
+  local date = vpos.datetime.DateTime()
+
+  -- get the reference/minimum date, as Unix time
+--  date:add(vpos.datetime.DateField.Day, -UPLOAD_LOG_LINE_AGE_IN_DAYS);
+  date:add(vpos.datetime.DateField.Year, -1);
+  local refUnixTime = date:getUnixTime()
+
+  -- set the log line date
+  date:setDate(decomposedDate.day, decomposedDate.month, decomposedDate.year)
+  date:setTime(decomposedDate.hour, decomposedDate.minute, decomposedDate.second)
+
+  -- compare the dates
+  return date:getUnixTime() >= refUnixTime
+end
+
+--- Checks if a log file line / message string is recent enough for uploading, by decomposing
+--- the given ISO date and if ok, determining the recency and updating the last date for the
+--- log file element.
+---@param fileName any The log file name
+---@param isoDate any The sending ISO date of a log file line / message string
+---@return boolean `true` if the log file line is recent enough for uploading, otherwise `false`
+local function checkLogFileLineRecencyAndUpdateFileElementLastDate(fileName, isoDate)
+  assert(fileName)
+  local fileElem = LogFileList[fileName]
+  assert(fileElem)
+
+  local ok, decomposedDate = pcall(decomposeIsoDate, isoDate)
+  if not ok then -- upon errors consider the log line as being recent
     assert(false, decomposedDate) --- @todo log dev
     return true
   end
 
-  -- compare the dates:
+  -- update the last ISO date of this log file element
+  fileElem.lastIsoDate = isoDate
 
-  local date = vpos.datetime.DateTime()
-
-  date:add(vpos.datetime.DateField.Day, -UPLOAD_LOG_LINE_AGE_IN_DAYS);
-  local refUnixTime = date:getUnixTime()
-
-  date:setDate(decomposedDate.day, decomposedDate.month, decomposedDate.year)
-  date:setTime(decomposedDate.hour, decomposedDate.minute, decomposedDate.second)
-
-  return date:getUnixTime() >= refUnixTime
+  return isRecentLogFileLine(decomposedDate)
 end
 
 local function uploadRecentLogFileLine(fileName, line)
   assert(fileName and line)
+  local fileElem = LogFileList[fileName]
+  assert(fileElem)
 
   local ok, decomposedMsg = pcall(decomposeLogFileLine, fileName, line)
-  if not ok then -- we'll consider the log line as being recent upon errors
-    -- BETTER don't log dev here, b/c the log file might have a different syntax
-     assert(false, decomposedMsg)
+  if not ok then -- there can be multi-line messages, unknown formatted messages etc.
+    --NOTE the log line failed to decompose, so first check if it contains only whitespaces
+    if isNilOrWhitespaceString(line) then return false end
+    local estimatedIsoDate = LogFileList[fileName].lastIsoDate or dateISO()
+    if not checkLogFileLineRecencyAndUpdateFileElementLastDate(fileName, estimatedIsoDate) then
+      return false
+    end
 
-     ListPushLeft({
-      datetime     = dateISO(),
-      scriptName   = assert(get_base_file_name(fileName)) .. ".vsp",
+    ListPushLeft({
+      datetime     = estimatedIsoDate,
+      scriptName   = assert(get_base_file_name_from_name(fileName)) .. ".vsp",
       url          = URL_PAPERTRAIL,
       logType      = "online",
       logSize      = 300,
@@ -845,13 +871,17 @@ local function uploadRecentLogFileLine(fileName, line)
       message      = line,
     })
   else
+    --NOTE the log line succeeded to decompose, so first update the log file element last
+    -- date and then check if the line contains only whitespaces
+    if not checkLogFileLineRecencyAndUpdateFileElementLastDate(fileName, decomposedMsg.sendingIsoDate) then
+      return false
+    end
     if isNilOrWhitespaceString(decomposedMsg.messageBody) then return false end
-    if not isRecentLogFileLine(decomposedMsg.sendingIsoDate) then return false end
 
     --TODO the real script name needs to be known, which may have the *.vsc extension !?
     ListPushLeft({
       datetime     = decomposedMsg.sendingIsoDate,
-      scriptName   = assert(get_base_file_name(fileName)) .. ".vsp",
+      scriptName   = assert(get_base_file_name_from_name(fileName)) .. ".vsp",
       url          = URL_PAPERTRAIL,
       logType      = "online",
       logSize      = 300,
