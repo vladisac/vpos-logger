@@ -451,14 +451,14 @@ end
 --- File functions
 -- @section File functions
 
---- Gets the base file name, namely the file name without the extension, from the file name
---- (without a path).
+--- Gets the file extension from the file name (without a path).
 ---@param fileName string? The file name (without a path)
----@return string? # The base file name on successful extraction, otherwise `nil`
+---@return string? # The file extension on successful extraction, otherwise `nil`
 local function get_file_extension_from_name(fileName)
   if not fileName then return nil end
-  local _,_, _, fileExt = string.find(fileName, "(.+)%.(%w+)")
-  return fileExt
+
+  local i, _ = fileName:find("%.%w*$")
+  return ((not i or i == 1) and "") or fileName:sub(i + 1)
 end
 
 --- Gets the base file name, namely the file name without the extension, from the file name
@@ -467,8 +467,9 @@ end
 ---@return string? # The base file name on successful extraction, otherwise `nil`
 local function get_base_file_name_from_name(fileName)
   if not fileName then return nil end
-  local _,_, baseFileName, _ = string.find(fileName, "(.+)%.(%w+)")
-  return baseFileName
+
+  local i, _ = fileName:find("%.%w*$")
+  return ((not i or i == 1) and fileName) or fileName:sub(1, i - 1)
 end
 
 --- Gets the base file name, namely the file name without the extension, from the file path.
@@ -477,41 +478,16 @@ end
 local function get_base_file_name(filePath)
   if not filePath then return nil end
 
-  --local _, _, _*, fileBaseName = string.find(scriptName, "^%a*:?[/\\]?([^/\\][/\\])*(.+)%.%a+$")
+  local k = 1
+  local i, _ = filePath:find(':', k, true)
+  if i then k = i + 1 end
 
-  local i, j = filePath:find(':', 1, true)
-  if i then filePath = filePath:sub(j + 1) end
+  -- determine the last directory separator
+  i, _ = filePath:find("[/\\][^/\\]*$", k)
+  if i then k = i + 1 end
 
-  -- determine the last directory separator in the reversed path
-  local reversedPath = filePath:reverse()
-  i, j = reversedPath:find("/", 1, true)
-  local i2, j2 = reversedPath:find("\\", 1, true)
-  local minI
-  if i and i2 then
-    if i < i2 then minI = i else minI = i2 end
-  elseif i then
-    minI = i
-  elseif i2 then
-    minI = i2
-  end
-
-  -- get the normal and reversed file names
-  local fileName, reversedName
-  if minI then -- we have a directory path
-    fileName = filePath:sub(-minI + 1)
-    reversedName = reversedPath:sub(1, minI - 1)
-  else
-    fileName = filePath
-    reversedName = reversedPath
-  end
-
-  -- extract the base file name
-  i, j = reversedName:find(".", 1, true)
-  if i then
-    return fileName:sub(1, -i - 1)
-  else
-    return fileName
-  end
+  i, _, _ = filePath:find("%.%w*$", k)
+  return ((not i or i == k) and filePath:sub(k)) or filePath:sub(k, i - 1)
 end
 
 --- Checks for the existance of the file.
@@ -626,8 +602,8 @@ end
 local function decomposeLoggerOfflineMessageString(str)
   assert(str)
 
-  local i, _, scriptName, sendingIsoDate, messageBody = str:find("^(%S+)%s+(%S+)%s+(.*)$")
-  if not i then error("Can't decompose logger own message string") end
+  local scriptName, sendingIsoDate, messageBody = str:match("^(%S+)%s+(%S+)%s+(.-)[\n\r]$")
+  if not scriptName then error("Can't decompose logger offline message string") end
 
   return {
     scriptName = scriptName, sendingIsoDate = sendingIsoDate, messageLevel = logLevel.Info,
@@ -646,30 +622,14 @@ end
 local function decomposeOfflineMessageString(str)
   assert(str)
 
-  local k = 1;
-  local i, j = string.find(str, " [", k, true)
-  if not i or i <= 1 then error("Can't determine sending date") end
-  local sendingIsoDate = string.sub(str, k, i - 1)
+  local sendingIsoDate, messageLevel, qFirstStr, qLastStr, messageBody =
+    str:match("^(%S+) %[(%S+)%] >> ([+-]?%d+):([+-]?%d+) (.-)[\n\r]$")
+  if not sendingIsoDate then error("Can't decompose offline message string") end
 
-  k = j + 1
-  i, j = string.find(str, "] >> ", k, true)
-  if not i or i <= 1 then error("Can't determine log level") end
-  local messageLevel = string.sub(str, k, i - 1)
-
-  k = j + 1
-  i, j = string.find(str, ":", k, true)
-  if not i or i <= 1 then error("Can't determine queue first index") end
-  local qFirst = tonumber(string.sub(str, k, i - 1))
-  if qFirst == nil then error("Can't convert queue first index to number") end
-
-  k = j + 1
-  i, j = string.find(str, " ", k, true)
-  if not i or i <= 1 then error("Can't determine queue last index") end
-  local qLast = tonumber(string.sub(str, k, i - 1))
-  if qLast == nil then error("Can't convert queue last index to number") end
-
-  k = j + 1
-  local messageBody = string.sub(str, k)
+  local qFirst = tonumber(qFirstStr)
+  if not qFirst then error("Can't convert queue first index to number") end
+  local qLast = tonumber(qLastStr)
+  if not qLast then error("Can't convert queue last index to number") end
 
   return {
     sendingIsoDate = sendingIsoDate, messageLevel = messageLevel,
@@ -825,7 +785,7 @@ local function determineLogFileToUpload()
   -- get the first log file element with the minimum upload counter  
   for fileName, fileElem in pairs(LogFileList) do
     assert(fileElem.uploadCounter)
-    if fileElem.uploadCounter <= minCounter then
+    if fileElem.uploadCounter < minCounter then
       fileNameToUpload = fileName
       minCounter = fileElem.uploadCounter
     end
