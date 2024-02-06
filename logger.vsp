@@ -614,6 +614,27 @@ local function mapMessageLevelToPriority(messageLevel)
   else                            assert(false, "Unrecognized message level");  return 14 end
 end
 
+--- Decomposes/Unformats an offline message string/line into its parts, owning to the
+--- logger script.<br/>
+--- Raises an error if the message can't be decomposed or a message part can't be converted.
+---@param str string The message string/line
+---@return table # A table with all of the message string parts:
+---  * `scriptName` string: the script name, which originally logged this message 
+---  * `sendingIsoDate` string: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
+---  * `messageLevel` string: defaulted as `logLevel.Info`
+---  * `messageBody` string: the actual message content
+local function decomposeLoggerOfflineMessageString(str)
+  assert(str)
+
+  local i, _, scriptName, sendingIsoDate, messageBody = str:find("^(%S+)%s+(%S+)%s+(.*)$")
+  if not i then error("Can't decompose logger own message string") end
+
+  return {
+    scriptName = scriptName, sendingIsoDate = sendingIsoDate, messageLevel = logLevel.Info,
+    messageBody = messageBody,
+  }
+end
+
 --- Decomposes/Unformats an offline message string/line into its parts.<br/>
 --- Raises an error if a message part can't be determined or converted.
 ---@param str string The message string/line
@@ -758,9 +779,7 @@ local function updateLogFileList()
 
   -- add new log file elements, and update the file size and missing file flag for the existing ones
   for _, fileName in pairs(fileList) do
-    if fileName == LOGGER_LOG_NAME or fileName == LOGGER_BACKUP_LOG_NAME then
-      --TODO treat this case!
-    elseif get_file_extension_from_name(fileName) == "log" then
+    if get_file_extension_from_name(fileName) == "log" then
       local scLog = vpos.script.Script {scriptURL = "VPOS:" .. fileName}
       if not LogFileList[fileName] then
         LogFileList[fileName] = {readOffset = 0, uploadCounter = 0}
@@ -815,6 +834,14 @@ local function determineLogFileToUpload()
   return fileNameToUpload
 end
 
+function decomposeLogFileLine(fileName, line)
+  if fileName == LOGGER_LOG_NAME or fileName == LOGGER_BACKUP_LOG_NAME then
+    return decomposeLoggerOfflineMessageString(line)
+  else
+    return decomposeOfflineMessageString(line)
+  end
+end
+
 ---
 ---@param sendingIsoDate string The sending ISO date of a log file line / message string
 ---@return boolean # `true` if the log file line / message string is recent enough to be uploaded; otherwise `false`
@@ -842,9 +869,8 @@ end
 local function uploadRecentLogFileLine(fileName, line)
   assert(fileName and line)
 
-  local ok, decomposedMsg = pcall(decomposeOfflineMessageString, line)
-  -- we'll consider the log line as being recent upon encountering exceptions
-  if not ok then
+  local ok, decomposedMsg = pcall(decomposeLogFileLine, fileName, line)
+  if not ok then -- we'll consider the log line as being recent upon errors
     -- BETTER don't log dev here, b/c the log file might have a different syntax
      assert(false, decomposedMsg)
 
