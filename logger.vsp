@@ -179,12 +179,12 @@ end
 --- clone. For all non-table fields recursively, or if the object is not a table, it
 --- does a shallow clone.
 --- There are two aspects this function does not handle:
----* metatables
----* recursive tables.
+--- * metatables
+--- * recursive tables.
 ---@param obj any The object to be cloned
 ---@return any # The cloned object
 local function cloneTablesDeepOthersShallow(obj)
-  if type(obj) ~= 'table' then return obj end
+  if type(obj) ~= "table" then return obj end
 
   local res = {}
   for k, v in pairs(obj) do
@@ -479,7 +479,7 @@ local function get_base_file_name(filePath)
   if not filePath then return nil end
 
   local k = 1
-  local i, _ = filePath:find(':', k, true)
+  local i, _ = filePath:find(":", k, true)
   if i then k = i + 1 end
 
   -- determine the last directory separator
@@ -488,6 +488,20 @@ local function get_base_file_name(filePath)
 
   i, _, _ = filePath:find("%.%w*$", k)
   return ((not i or i == k) and filePath:sub(k)) or filePath:sub(k, i - 1)
+end
+
+local function removeLogBackSuffixFromBaseFileName(baseFileName)
+  if not baseFileName then return nil end
+
+  local i, _ = baseFileName:find("%.1$")
+  return ((not i or i == 1) and baseFileName) or baseFileName:sub(1, i - 1)
+end
+
+local function getBaseFileNameWithoutLogBackupSuffixFromName(fileName)
+  if not fileName then return nil end
+
+  local baseFileName = get_base_file_name_from_name(fileName)
+  return removeLogBackSuffixFromBaseFileName(baseFileName)
 end
 
 --- Checks for the existance of the file.
@@ -523,8 +537,8 @@ end
 -- @tparam string fn2 destination filename
 -- @tparam boolean overwrite flag to overwrite existing destination file
 function file_rename(fn1, fn2, overwrite)
-  if not file_exists(fn1) then return false, string.format("Source file '%s' is missing!", fn1 or "") end
-  if file_exists(fn2) and not overwrite then return false, string.format("Destination file '%s' already exists!", fn2) end
+  if not file_exists(fn1) then return false, string.format("Source file %s is missing!", fn1 or "") end
+  if file_exists(fn2) and not overwrite then return false, string.format("Destination file %s already exists!", fn2) end
 
   ok, err = vpos.renameFile(fn1, fn2)
   -- if the error is DestinationFileExists and we have to overwrite
@@ -725,7 +739,7 @@ end
 local function resetUploadWatch() UploadStopWatch:reset() end
 
 local function areUploadConditionsMet()
-  -- @todo implement!
+  --TODO implement!
   return true
 end
 
@@ -760,9 +774,9 @@ local function deleteLogFileAndFileElement(fileName)
   assert((ok and not fileElem.isMissingFile) or (not ok and fileElem.isMissingFile))
   --TODO add:
 --  if ok and fileElem.isMissingFile then
---    logDev("Deleted existing 'VPOS:" .. fileName .. "' marked as missing")
+--    logDev("Deleted existing " .. fileName .. " marked as missing")
 --  elseif not ok and not fileElem.isMissingFile then
---    logDev("Can't delete 'VPOS:" .. fileName .. "' marked as not missing")
+--    logDev("Can't delete " .. fileName .. " marked as not missing")
 --  end
 
   -- delete the log file element
@@ -862,7 +876,7 @@ local function uploadRecentLogFileLine(fileName, line)
 
     ListPushLeft({
       datetime     = estimatedIsoDate,
-      scriptName   = assert(get_base_file_name_from_name(fileName)) .. ".vsp",
+      scriptName   = assert(getBaseFileNameWithoutLogBackupSuffixFromName(fileName)) .. ".vsp",
       url          = URL_PAPERTRAIL,
       logType      = "online",
       logSize      = 300,
@@ -879,9 +893,11 @@ local function uploadRecentLogFileLine(fileName, line)
     if isNilOrWhitespaceString(decomposedMsg.messageBody) then return false end
 
     --TODO the real script name needs to be known, which may have the *.vsc extension !?
+    local scriptName = decomposedMsg.scriptName or
+                       assert(getBaseFileNameWithoutLogBackupSuffixFromName(fileName)) .. ".vsp"
     ListPushLeft({
       datetime     = decomposedMsg.sendingIsoDate,
-      scriptName   = assert(get_base_file_name_from_name(fileName)) .. ".vsp",
+      scriptName   = scriptName,
       url          = URL_PAPERTRAIL,
       logType      = "online",
       logSize      = 300,
@@ -904,14 +920,14 @@ local function uploadChunkOfLogFileLines(fileName)
   --TODO SHOULD it be "rb"?
   local fileHandle, err = io.open("VPOS:" .. fileName, "r") -- open log file
   if not fileHandle then
-    --TODO add: logDev("Can't open file 'VPOS:" .. filename .. "'", err)
+    --TODO add: logDev("Can't open file " .. filename, err)
     return uploadedSize
   end
   assert(fileHandle)
 
   _, err = fileHandle:seek("set", fileElem.readOffset)
   if err then
-    --TODO add: logDev("Can't seek in file 'VPOS:" .. filename .. "' at pos " .. tostring(fileElem.readOffset), err)
+    --TODO add: logDev("Can't seek in file " .. filename .. " at offset " .. tostring(fileElem.readOffset), err)
     return uploadedSize
   end
 
@@ -921,7 +937,6 @@ local function uploadChunkOfLogFileLines(fileName)
 
     local lineLen = string.len(line)
     processedSize = processedSize + lineLen
-    --TODO Trim end CR-LF from line ?
 
     if uploadRecentLogFileLine(fileName, line) then
       uploadedSize = uploadedSize + lineLen
@@ -956,7 +971,7 @@ local function deleteFullyProcessedLogFileAndFileElement(fileName)
 end
 
 function uploadOfflineLogs()
-  -- @todo Add offline setting check
+  --TODO Add offline setting check
   if not isUploadRound() then return end
   if not areUploadConditionsMet() then resetUploadWatch() return end
 
