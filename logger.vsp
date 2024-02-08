@@ -32,17 +32,28 @@ POS_NAME = ""
 --- Interval in milliseconds, at which the script timer fires events for logging.
 LOG_TIMER_INTERVAL = 300
 --- Interval in milliseconds, at which a new round of uploading offline logs is started.
-UPLOAD_ROUND_INTERVAL = 300000 -- 5 * 60 * 1000 [ms] = 5 [minutes]
+UPLOAD_ROUND_INTERVAL = 180000 -- 3 * 60 * 1000 [ms] = 3 [minutes]
+
+--- Maximum logging list/queue size before dumping its content to the logger's log file.
+MAX_LOG_LIST_SIZE_BEFORE_DUMP = 150
+--- Maximum log lines / message strings to send per send round (a log timer interval).
+MAX_LOG_LIST_SEND_LINES = 11 -- 10 [normally] + 1 [for uploading offlines log files]
 
 --- Log file name of this logger script.
 LOGGER_LOG_NAME = "logger.log"
 --- Backup log file name of this logger script.
 LOGGER_BACKUP_LOG_NAME = "logger.1.log"
 
+--- Maximum logging list/queue size allowed for uploading offline saved log lines.
+MAX_LOG_LIST_SIZE_FOR_UPLOAD = 100
+--- Maximum logging list/queue size allowed after an uploading round.
+MAX_LOG_LIST_SIZE_AFTER_UPLOAD = 125
+--- Maximum log lines to upload per upload round (if the logging list/queue size allows).
+MAX_LOG_LINES_TO_UPLOAD = 40
 --- The chunk size to be uploaded from an offline log file, in an uploaded round. More
 --- than this value might be read and processed.
-LOG_CHUNK_SIZE_TO_UPLOAD = 2^14 -- 16 KB
---- The max. age of oflline log lines, which will be uploaded.
+LOG_CHUNK_SIZE_TO_UPLOAD = 2^13 -- 8 KB
+--- The max. age of offline log lines, which will be uploaded.
 UPLOAD_LOG_LINE_AGE_IN_DAYS = 30
 
 --- ISO 8601 date constants
@@ -409,7 +420,7 @@ function handleQueue(q)
   if not isQueueEmpty(q) then
     local qSize = queueSize(q)
     --showStatus("Q:"..tostring(qSize))
-    if qSize > 150 then
+    if qSize > MAX_LOG_LIST_SIZE_BEFORE_DUMP then
       local ok, resp = pcall(dumpQueue, q)
       assert(ok, resp)
       --initialse empty queue
@@ -427,10 +438,11 @@ function handleQueue(q)
       assert(ok, resp2)
     else
       local limit
-      if qSize > 10 then limit = 10 else limit = qSize end
+      if qSize < MAX_LOG_LIST_SEND_LINES then limit = qSize else limit = MAX_LOG_LIST_SEND_LINES end
       for i=1,limit do
-
-        local ok, resp = pcall(sendFromQueue, q)
+--        local ok, resp = pcall(sendFromQueue, q)
+        _, _ = pcall(ListPopRight, q)
+        local ok, resp = true, ""
         assert(ok, resp)
         if not ok then
           ListPushLeft({scriptName="logger.vsp",
@@ -738,6 +750,18 @@ end
 
 local function resetUploadWatch() UploadStopWatch:reset() end
 
+local function determineMaxLogLinesForUploadRound()
+  local logListSize = queueSize(logList)
+  if logListSize > MAX_LOG_LIST_SIZE_FOR_UPLOAD then return 0 end
+
+  local uploadLogLines = MAX_LOG_LIST_SIZE_AFTER_UPLOAD - logListSize
+  if uploadLogLines < MAX_LOG_LINES_TO_UPLOAD then
+    return uploadLogLines
+  else
+    return MAX_LOG_LINES_TO_UPLOAD
+  end
+end
+
 local function areUploadConditionsMet()
   --TODO implement!
   return true
@@ -909,11 +933,12 @@ local function uploadRecentLogFileLine(fileName, line)
   return true
 end
 
-local function uploadChunkOfLogFileLines(fileName)
+local function uploadChunkOfLogFileLines(fileName, maxUploadLogLines)
   assert(fileName)
   local fileElem = LogFileList[fileName];
   assert(fileElem)
 
+  local uploadedLineCount = 0
   local uploadedSize = 0
   local processedSize = 0
 
@@ -931,7 +956,7 @@ local function uploadChunkOfLogFileLines(fileName)
     return uploadedSize
   end
 
-  while uploadedSize < LOG_CHUNK_SIZE_TO_UPLOAD do
+  while uploadedLineCount < maxUploadLogLines and uploadedSize < LOG_CHUNK_SIZE_TO_UPLOAD do
     local line = fileHandle:read("L")
     if not line then break end
 
@@ -939,6 +964,7 @@ local function uploadChunkOfLogFileLines(fileName)
     processedSize = processedSize + lineLen
 
     if uploadRecentLogFileLine(fileName, line) then
+      uploadedLineCount = uploadedLineCount + 1
       uploadedSize = uploadedSize + lineLen
     end
   end
@@ -972,15 +998,17 @@ end
 
 function uploadOfflineLogs()
   --TODO Add offline setting check
-  if not isUploadRound() then return end
-  if not areUploadConditionsMet() then resetUploadWatch() return end
+--  if not isUploadRound() then return end
+
+  local maxUploadLogLines = determineMaxLogLinesForUploadRound()
+  if maxUploadLogLines <= 0 or not areUploadConditionsMet() then resetUploadWatch(); return end
 
   updateLogFileList()
   deleteMissingAndEmptyLogFilesAndFileElements()
 
   local fileName = determineLogFileToUpload()
   if fileName ~= nil then
-    local processedSize = uploadChunkOfLogFileLines(fileName)
+    local processedSize = uploadChunkOfLogFileLines(fileName, maxUploadLogLines)
     updateLogFileElement(fileName, processedSize)
     deleteFullyProcessedLogFileAndFileElement(fileName)
   end
@@ -997,9 +1025,9 @@ end
 -- Timer function calling `handleQueue` and `uploadOfflineLogs` for sending
 -- the logs to papertrail.
 function onLogTimer()
-  local ok, err = pcall(handleQueue, logList)
-  assert(ok, err)
   ok, err = pcall(uploadOfflineLogs, logList)
+  assert(ok, err)
+  local ok, err = pcall(handleQueue, logList)
   assert(ok, err)
 end
 
