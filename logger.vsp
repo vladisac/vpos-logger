@@ -440,9 +440,7 @@ function handleQueue(q)
       local limit
       if qSize < MAX_LOG_LIST_SEND_LINES then limit = qSize else limit = MAX_LOG_LIST_SEND_LINES end
       for i=1,limit do
---        local ok, resp = pcall(sendFromQueue, q)
-        _, _ = pcall(ListPopRight, q)
-        local ok, resp = true, ""
+        local ok, resp = pcall(sendFromQueue, q)
         assert(ok, resp)
         if not ok then
           ListPushLeft({scriptName="logger.vsp",
@@ -997,8 +995,8 @@ local function deleteFullyProcessedLogFileAndFileElement(fileName)
 end
 
 function uploadOfflineLogs()
-  --TODO Add offline setting check
---  if not isUploadRound() then return end
+  --TODO add: offline setting check
+  if not isUploadRound() then return end
 
   local maxUploadLogLines = determineMaxLogLinesForUploadRound()
   if maxUploadLogLines <= 0 or not areUploadConditionsMet() then resetUploadWatch(); return end
@@ -1025,9 +1023,9 @@ end
 -- Timer function calling `handleQueue` and `uploadOfflineLogs` for sending
 -- the logs to papertrail.
 function onLogTimer()
-  ok, err = pcall(uploadOfflineLogs, logList)
+  local ok, err = pcall(uploadOfflineLogs, logList)
   assert(ok, err)
-  local ok, err = pcall(handleQueue, logList)
+  ok, err = pcall(handleQueue, logList)
   assert(ok, err)
 end
 
