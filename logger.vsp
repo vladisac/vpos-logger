@@ -82,6 +82,8 @@ assert = function(...) end
 --- The logging list/queue containing all current messages to be logged.
 logList = {}
 
+--- The socket for sending the log lines/messages online.
+socket = nil
 --- Count the number of logging fallbacks to file.
 offlineCounter = 0
 
@@ -684,6 +686,17 @@ function formatMessage(message, fallback)
   return outStr
 end
 
+local function createOrRecreateLogSocket(url)
+  -- retry to create the socket only after several logs were locally written
+  if (not socket and (offlineCounter == 0 or offlineCounter >= 9)) or offlineCounter >= 9 then
+    local logUrl = url:gsub("http://", "")
+    local address, port = logUrl:match("(.-):(%d+)")
+    assert(address and port)
+    socket = vpos.communication.Socket(address, port, 3000)
+    offlineCounter = 0
+  end
+end
+
 --- Sends the message to be logged.
 -- Sends the message using sockets over the internet (online mode). If this fails
 -- or is explicitly requested, writes the message to a file (offline mode).
@@ -699,15 +712,7 @@ function sendMessage(message)
   end
 
   if message.logType == "online" and message.url then
-    logURL = message.url
-    logURL = logURL:gsub("http://", "")
-    _, _, logURL, logPORT = logURL:find("(.-):(%d+)")
-
-    -- retry to create the socket only after several logs were locally written
-    if (not socket and (offlineCounter == 0 or offlineCounter >= 9)) or offlineCounter >= 9 then
-      socket = vpos.communication.Socket(logURL, logPORT, 3000)
-      offlineCounter = 0
-    end
+    createOrRecreateLogSocket(message.url)
 
     local sent = socket and socket:write(outStr)
     if not sent then
@@ -760,9 +765,10 @@ local function determineMaxLogLinesForUploadRound()
   end
 end
 
-local function areUploadConditionsMet()
-  --TODO implement!
-  return true
+local function isLoggerConnectedOnline()
+  createOrRecreateLogSocket(URL_PAPERTRAIL)
+  if not socket then return false end
+  return socket:isOpen() and socket:isConnected()
 end
 
 local function updateLogFileList()
@@ -999,7 +1005,7 @@ function uploadOfflineLogs()
   if not isUploadRound() then return end
 
   local maxUploadLogLines = determineMaxLogLinesForUploadRound()
-  if maxUploadLogLines <= 0 or not areUploadConditionsMet() then resetUploadWatch(); return end
+  if maxUploadLogLines <= 0 or not isLoggerConnectedOnline() then resetUploadWatch(); return end
 
   updateLogFileList()
   deleteMissingAndEmptyLogFilesAndFileElements()
