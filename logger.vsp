@@ -928,8 +928,8 @@ local function uploadRecentLogFileLine(fileName, line)
     if isNilOrWhitespaceString(decomposedMsg.messageBody) then return false end
 
     --TODO add!?: the real script name needs to be known, which may have the *.vsc extension
-    local scriptName = decomposedMsg.scriptName or
-                       assert(getBaseFileNameWithoutLogBackupSuffixFromName(fileName)) .. ".vsp"
+    local scriptName = (decomposedMsg.scriptName or
+                        assert(getBaseFileNameWithoutLogBackupSuffixFromName(fileName))) .. ".vsp"
     ListPushLeft({
       datetime     = decomposedMsg.sendingIsoDate,
       scriptName   = scriptName,
