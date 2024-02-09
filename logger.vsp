@@ -6,9 +6,7 @@
 -- Description: use metadata and queue for sending log messages to url (e.g. http://logs6.papertrailapp.com:17732 )
 
 
---*************************************************************
---- Global settings (read-only initialized variables) and constants
--- @section Global settings and constants
+--********** Global constants and enums ***********************
 
 ---@enum logLevel
 local logLevel = {
@@ -83,10 +81,10 @@ IsoDate.BYTE_TZ_UTC_MARK   = IsoDate.TZ_UTC_MARK:byte(1)
 IsoDate.BYTE_TZ_PLUS_MARK  = IsoDate.TZ_PLUS_MARK:byte(1)
 IsoDate.BYTE_TZ_MINUS_MARK = IsoDate.TZ_MINUS_MARK:byte(1)
 
+--********** END Global constants and enums *******************
 
---*************************************************************
---- Global variables
--- @section Global variables
+
+--********** Global variables *********************************
 
 assert = function(...) end
 
@@ -103,10 +101,10 @@ LogFileList = {}
 --- Stop watch for uploading offline saved logs.
 UploadStopWatch = vpos.datetime.StopWatch()
 
+--********** END Global variables *****************************
 
---*************************************************************
---- Helper functions
--- @section Helper functions
+
+--********** Helper functions *********************************
 
 --- Formats the given or current date according to the ISO 8601 format
 --- `yyyy-mm-ddThh:mm:ss±hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
@@ -126,10 +124,9 @@ local function dateISO(date)
 --                       tostring(year), month, day, hour, minute, second)
 end
 
---- Decomposes the given date in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm` (length 25).
---- NOTE that the minimum accepted ISO date is `yyyy-mm-ddThh:mm:ss` (length 19);
---- also accepted is `yyyy-mm-ddThh:mm:ssZ` (UTC length 20) and `yyyy-mm-ddThh:mm:ss±hh`
---- (length 22).<br/>
+--- Decomposes the given date in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm` (length 25).<br/>
+--- NOTE: The minimum accepted ISO date is `yyyy-mm-ddThh:mm:ss` (length 19); also accepted
+--- is `yyyy-mm-ddThh:mm:ssZ` (UTC length 20) and `yyyy-mm-ddThh:mm:ss±hh` (length 22).<br/>
 ---Raises an error if the string is not an ISO 8601 date or a date part can't be converted.
 ---@param isoDate string The date in ISO 8601 format.
 ---@return table # A table with all of the ISO date parts:
@@ -232,13 +229,12 @@ end
 local function isNilOrWhitespaceString(str)
   if not str or str:len() == 0 then return true end
   return (str:find("^%s+$")) ~= nil
---  return not str or #string.gsub(str, "^%s*(.-)%s*$", "%1") == 0
 end
 
+--********** END Helper functions *****************************
 
---*************************************************************
---- Metadata functions
--- @section Metadata functions
+
+--********** Metadata functions *******************************
 
 --- Reads the queue from the script metadata, indexed by "key" key.
 -- @treturn table|nil The metadata queue indexed by "key" if present, otherwise `nil`
@@ -268,10 +264,10 @@ function clearMD()
   writeMD(logList)
 end
 
+--********** END Metadata functions ***************************
 
---*************************************************************
---- Queue functions
--- @section Queue functions
+
+--********** Queue functions **********************************
 
 --- Gets the queue size.
 -- @tparam table q The queue
@@ -469,10 +465,10 @@ function handleQueue(q)
   end
 end
 
+--********** END Queue functions *******************************
 
---**************************************************************
---- File functions
--- @section File functions
+
+--********** File functions ************************************
 
 --- Gets the file extension from the file name (without a path).
 ---@param fileName string? The file name (without a path)
@@ -612,10 +608,10 @@ function getLogFile(scriptName, logSizeInKB)
   return {fh = fh, size = logSize, scriptFileName = scriptFileName}
 end
 
+--********** END File functions ********************************
 
---**************************************************************
---- Message functions
--- @section Message functions
+
+--********** Message functions *********************************
 
 local function mapMessageLevelToPriority(messageLevel)
   if not messageLevel then                 assert(false, "Nil message level");  return 14
@@ -748,10 +744,10 @@ function sendMessage(message)
   end
 end
 
+--********** END Message functions *****************************
 
---*************************************************************
---- Upload offline logs functions
--- @section Upload offline logs functions
+
+--********** Upload offline logs functions *********************
 
 local function isUploadRound()
   local split = UploadStopWatch:split()
@@ -889,7 +885,7 @@ local function checkLogFileLineRecencyAndUpdateFileElementLastDate(fileName, iso
 
   local ok, decomposedDate = pcall(decomposeIsoDate, isoDate)
   if not ok then -- upon errors consider the log line as being recent
-    assert(false, decomposedDate) --- @todo log dev
+    assert(false, decomposedDate) ---TODO change: logDev()
     return true
   end
 
@@ -906,7 +902,7 @@ local function uploadRecentLogFileLine(fileName, line)
 
   local ok, decomposedMsg = pcall(decomposeLogFileLine, fileName, line)
   if not ok then -- there can be multi-line messages, unknown formatted messages etc.
-    --NOTE the log line failed to decompose, so first check if it contains only whitespaces
+    --NOTE: the log line failed to decompose, so first check if it contains only whitespaces
     if isNilOrWhitespaceString(line) then return false end
     local estimatedIsoDate = LogFileList[fileName].lastIsoDate or dateISO()
     if not checkLogFileLineRecencyAndUpdateFileElementLastDate(fileName, estimatedIsoDate) then
@@ -924,14 +920,14 @@ local function uploadRecentLogFileLine(fileName, line)
       message      = line,
     })
   else
-    --NOTE the log line succeeded to decompose, so first update the log file element last
+    --NOTE: the log line succeeded to decompose, so first update the log file element last
     -- date and then check if the line contains only whitespaces
     if not checkLogFileLineRecencyAndUpdateFileElementLastDate(fileName, decomposedMsg.sendingIsoDate) then
       return false
     end
     if isNilOrWhitespaceString(decomposedMsg.messageBody) then return false end
 
-    --TODO the real script name needs to be known, which may have the *.vsc extension !?
+    --TODO add!?: the real script name needs to be known, which may have the *.vsc extension
     local scriptName = decomposedMsg.scriptName or
                        assert(getBaseFileNameWithoutLogBackupSuffixFromName(fileName)) .. ".vsp"
     ListPushLeft({
@@ -957,7 +953,6 @@ local function uploadChunkOfLogFileLines(fileName, maxUploadLogLines)
   local uploadedSize = 0
   local processedSize = 0
 
-  --TODO SHOULD it be "rb"?
   local fileHandle, err = io.open("VPOS:" .. fileName, "r") -- open log file
   if not fileHandle then
     --TODO add: logDev("Can't open file " .. filename, err)
@@ -1031,10 +1026,10 @@ function uploadOfflineLogs()
   resetUploadWatch()
 end
 
+--********** END Upload offline logs functions *****************
 
---*************************************************************
---- Timer functions
--- @section Timer functions
+
+--********** Timer functions ***********************************
 
 --- Function called on timer timeouts.
 -- Timer function calling `handleQueue` and `uploadOfflineLogs` for sending
@@ -1046,10 +1041,10 @@ function onLogTimer()
   assert(ok, err)
 end
 
+--********** END Timer functions *******************************
 
---*************************************************************
---- Initialization functions
--- @section Top functions
+
+--********** Initialization functions **************************
 
 local function initSettings()
     -- format the company name
@@ -1075,10 +1070,10 @@ local function initTimers()
   UploadStopWatch:start()
 end
 
+--********** END Initialization functions **********************
 
---*************************************************************
---- Main
--- @section main
+
+--********** MAIN **********************************************
 
 initSettings()
 initLogList()
