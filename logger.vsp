@@ -214,15 +214,6 @@ local function cloneTablesDeepOthersShallow(obj)
   return res
 end
 
---- Shows the status of the fiscal printer.
----@param msg string Message to be shown as status
----@param subNumber number The ID of the view where the status is shown
-local function showFiscalPrinterStatus(msg, subNumber)
-  local wndSubNum = subNumber or 69
-  local gestoInfo = vpos.view.LayoutWindow(wndSubNum)
-  gestoInfo:setText(msg)
-end
-
 --- Determines if a string is nil or empty, or contains only whitespaces.
 ---@param str any The string
 ---@return boolean `true` if the string is nil or empty or only whitespaces, otherwise `false`
@@ -477,7 +468,7 @@ local function get_file_extension_from_name(fileName)
   if not fileName then return nil end
 
   local i, _ = fileName:find("%.%w*$")
-  return ((not i or i == 1) and "") or fileName:sub(i + 1)
+  return ((not i or (i == 1)) and "") or fileName:sub(i + 1)
 end
 
 --- Gets the base file name, namely the file name without the extension, from the file name
@@ -488,39 +479,21 @@ local function get_base_file_name_from_name(fileName)
   if not fileName then return nil end
 
   local i, _ = fileName:find("%.%w*$")
-  return ((not i or i == 1) and fileName) or fileName:sub(1, i - 1)
+  return ((not i or (i == 1)) and fileName) or fileName:sub(1, i - 1)
 end
 
---- Gets the base file name, namely the file name without the extension, from the file path.
----@param filePath string? The file path
----@return string? # The base file name on successful extraction, otherwise `nil`
-local function get_base_file_name(filePath)
-  if not filePath then return nil end
-
-  local k = 1
-  local i, _ = filePath:find(":", k, true)
-  if i then k = i + 1 end
-
-  -- determine the last directory separator
-  i, _ = filePath:find("[/\\][^/\\]*$", k)
-  if i then k = i + 1 end
-
-  i, _, _ = filePath:find("%.%w*$", k)
-  return ((not i or i == k) and filePath:sub(k)) or filePath:sub(k, i - 1)
-end
-
-local function removeLogBackSuffixFromBaseFileName(baseFileName)
+local function removeLogBackupSuffixFromBaseFileName(baseFileName)
   if not baseFileName then return nil end
 
   local i, _ = baseFileName:find("%.1$")
-  return ((not i or i == 1) and baseFileName) or baseFileName:sub(1, i - 1)
+  return ((not i or (i == 1)) and baseFileName) or baseFileName:sub(1, i - 1)
 end
 
 local function getBaseFileNameWithoutLogBackupSuffixFromName(fileName)
   if not fileName then return nil end
 
   local baseFileName = get_base_file_name_from_name(fileName)
-  return removeLogBackSuffixFromBaseFileName(baseFileName)
+  return removeLogBackupSuffixFromBaseFileName(baseFileName)
 end
 
 --- Checks for the existance of the file.
@@ -758,7 +731,7 @@ local function isUploadRound()
   end
 end
 
-local function resetUploadWatch() UploadStopWatch:reset() end
+local function resetUploadRound() UploadStopWatch:reset() end
 
 local function determineMaxLogLinesForUploadRound()
   local logListSize = queueSize(logList)
@@ -910,7 +883,7 @@ local function uploadRecentLogFileLine(fileName, line)
 
     ListPushLeft({
       datetime     = estimatedIsoDate,
-      scriptName   = assert(getBaseFileNameWithoutLogBackupSuffixFromName(fileName)) .. ".vsp",
+      scriptName   = assert(getBaseFileNameWithoutLogBackupSuffixFromName(fileName)) .. ".log",
       url          = URL_PAPERTRAIL,
       logType      = "online",
       logSize      = 300,
@@ -927,8 +900,8 @@ local function uploadRecentLogFileLine(fileName, line)
     if isNilOrWhitespaceString(decomposedMsg.messageBody) then return false end
 
     --TODO add!?: the real script name needs to be known, which may have the *.vsc extension
-    local scriptName = (decomposedMsg.scriptName or
-                        assert(getBaseFileNameWithoutLogBackupSuffixFromName(fileName))) .. ".vsp"
+    local scriptName = decomposedMsg.scriptName or
+                       (assert(getBaseFileNameWithoutLogBackupSuffixFromName(fileName)) .. ".log")
     ListPushLeft({
       datetime     = decomposedMsg.sendingIsoDate,
       scriptName   = scriptName,
@@ -1010,7 +983,7 @@ function uploadOfflineLogs()
   if not isUploadRound() then return end
 
   local maxUploadLogLines = determineMaxLogLinesForUploadRound()
-  if maxUploadLogLines <= 0 or not isLoggerConnectedOnline() then resetUploadWatch(); return end
+  if maxUploadLogLines <= 0 or not isLoggerConnectedOnline() then resetUploadRound(); return end
 
   updateLogFileList()
   deleteMissingAndEmptyLogFilesAndFileElements()
@@ -1022,7 +995,7 @@ function uploadOfflineLogs()
     deleteFullyProcessedLogFileAndFileElement(fileName)
   end
 
-  resetUploadWatch()
+  resetUploadRound()
 end
 
 --********** END Upload offline logs functions *****************
