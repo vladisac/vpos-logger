@@ -731,7 +731,10 @@ local function isUploadRound()
   end
 end
 
-local function resetUploadRound() UploadStopWatch:reset() end
+local function resetUploadRound()
+  UploadStopWatch:reset()
+  UploadStopWatch:start()
+end
 
 local function determineMaxLogLinesForUploadRound()
   local logListSize = queueSize(logList)
