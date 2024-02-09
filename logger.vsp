@@ -3,57 +3,232 @@
 -- Script name: logger.vsp
 -- Author: Vlad Isac
 -- Date: 03/2020
--- Description: use metadata and queue for sending log messages to url (eg http://logs6.papertrailapp.com:17732 )
+-- Description: use metadata and queue for sending log messages to url (e.g. http://logs6.papertrailapp.com:17732 )
+
+
+--********** Global constants and enums ***********************
+
+---@enum logLevel
+logLevel = {
+  Off   = "off",
+  Error = "error",
+  Warn  = "warn",
+  Info  = "info",
+  Debug = "debug",
+  Trace = "trace",
+  Dev   = "dev"
+}
+
+--- URL where logs are shown on papertrail
+URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
+
+--- Company name
+COMP_NAME = ""
+--- POS name
+POS_NAME = ""
+
+--- Interval in milliseconds, at which the script timer fires events for logging.
+LOG_TIMER_INTERVAL = 320
+--- Interval in milliseconds, at which a new round of uploading offline logs is started.
+--- A good interval is [1; 10] minutes.<br/>
+UPLOAD_ROUND_INTERVAL = 150000 -- 2.5 * 60'000 ms = 2.5 minutes = 2m30s
+
+--- Maximum logging list/queue size before dumping its content to the logger's log file.
+MAX_LOG_LIST_SIZE_BEFORE_DUMP = 150
+--- Maximum log lines / message strings to send per send round (a log timer interval).<br/>
+--- The maximum "log lines bandwidth" is:<br/>
+---   3'600'000 ms / LOG_TIMER_INTERVAL * MAX_LOG_LIST_SEND_LINES;<br/>
+--- reference value: MAX_REF_LOG_LINES_BANDWITDH = 3'600'000 / 300 * 10 = 120'000 logs/hour;<br/>
+--- current value:   MAX_LOG_LINES_BANDWITDH     = 3'600'000 / 320 * 11 = 123'750 logs/hour.<br/>
+---NOTE: Adjust the (current) values so that the following inequality holds true
+---   MAX_LOG_LINES_BANDWITDH - MAX_REF_LOG_LINES_BANDWITDH > MAX_UPLOAD_LOG_LINES_BANDWIDTH !
+MAX_LOG_LIST_SEND_LINES = 11
+
+--- Log file name of this logger script.
+LOGGER_LOG_NAME = "logger.log"
+--- Backup log file name of this logger script.
+LOGGER_BACKUP_LOG_NAME = "logger.1.log"
+
+--- Maximum logging list/queue size allowed for uploading offline saved log lines.
+MAX_LOG_LIST_SIZE_FOR_UPLOAD = 100
+--- Maximum logging list/queue size allowed after an uploading round.
+MAX_LOG_LIST_SIZE_AFTER_UPLOAD = 120
+--- Maximum log lines to upload per upload round (if the logging list/queue size allows).
+--- The maximum "upload log lines bandwidth" is:<br/>
+---   360'000 ms / UPLOAD_ROUND_INTERVAL * MAX_LOG_LINES_TO_UPLOAD;<br/>
+--- current value: MAX_UPLOAD_LOG_LINES_BANDWIDTH = 3'600'000 / 150'000 = 960 logs/hour.<br/>
+--- Example: A 3000 lines log file is sent the fastest in 3000 / 960 = 3.125 hours = 3h7m30s.
+MAX_LOG_LINES_TO_UPLOAD = 40
+--- The chunk size to be uploaded from an offline log file, in an uploaded round. More
+--- than this value might be read and processed.<br/>
+LOG_CHUNK_SIZE_TO_UPLOAD = 2^13 -- 8 KB
+--- The max. age of offline log lines, which will be uploaded.
+UPLOAD_LOG_LINE_AGE_IN_DAYS = 30
+
+--- ISO 8601 date constants
+IsoDate = {
+  DATE_SEP      = "-", --- separator between date parts
+  TIME_MARK     = "T", --- time mark/sign between the date and time sections
+  TIME_SEP      = ":", --- separator between the time parts and respectively time zone parts
+  TZ_UTC_MARK   = "Z", --- time zone UTC mark/sign
+  TZ_PLUS_MARK  = "+", --- time zone minus mark/sign
+  TZ_MINUS_MARK = "-", --- time zone UTC mark/sign
+}
+IsoDate.BYTE_DATE_SEP      = IsoDate.DATE_SEP:byte(1)
+IsoDate.BYTE_TIME_MARK     = IsoDate.TIME_MARK:byte(1)
+IsoDate.BYTE_TIME_SEP      = IsoDate.TIME_SEP:byte(1)
+IsoDate.BYTE_TZ_UTC_MARK   = IsoDate.TZ_UTC_MARK:byte(1)
+IsoDate.BYTE_TZ_PLUS_MARK  = IsoDate.TZ_PLUS_MARK:byte(1)
+IsoDate.BYTE_TZ_MINUS_MARK = IsoDate.TZ_MINUS_MARK:byte(1)
+
+--********** END Global constants and enums *******************
+
+
+--********** Global variables *********************************
 
 assert = function(...) end
 
----
--- Count the number of fallbacks to file
--- @global offlineCounter
+--- The logging list/queue containing all current messages to be logged.
+logList = {}
+
+--- The socket for sending the log lines/messages online.
+socket = nil
+--- Count the number of logging fallbacks to file.
 offlineCounter = 0
 
+--- Table containing information on offline saved logs, for uploading them.
+LogFileList = {}
+--- Stop watch for uploading offline saved logs.
+UploadStopWatch = vpos.datetime.StopWatch()
 
----
--- Function to generate a date following format as per ISO 8601: rrrr-mm-ddThh:mm:ss±hh:mm
--- Length: 25 characters.
--- Example - daylight saving time:2016-11-09T04:25:28+01:00
--- @tparam datetime date to be formated
--- @treturn string date formated as per ISO 8601: rrrr-mm-ddThh:mm:ss±hh:mm
+--********** END Global variables *****************************
+
+
+--********** Helper functions *********************************
+
+--- Formats the given or current date according to the ISO 8601 format
+--- `yyyy-mm-ddThh:mm:ss±hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
+--- (only the first 19 out of the 25 characters).<br/>
+--- Example of returned date: `2016-11-09T04:25:28` (the full date could be
+--- `2016-11-09T04:25:28+01:00`).
+---@param date? vpos.datetime.DateTime? Date to be formatted; if `nil`, the current date is used
+---@return string # Date formatted as per ISO 8601 format.
 local function dateISO(date)
-  local date = date or vpos.datetime.DateTime ()
-  local day, month, year = date:getDate ()
-  local hour, minute, second = date:getTime ()
+  local date = date or vpos.datetime.DateTime() ---@diagnostic disable-line: redefined-local
+  local day, month, year = date:getDate()
+  local hour, minute, second = date:getTime()
 
-
-  local function IsDST(day, month, year)
-
-      --January, february, november and december are out.
-      if month < 3 or month > 10 then return 0 end
-      --April to October are in
-      if month > 3 and month < 10 then return 1 end
-
-      marchSunday = math.ceil(31 - ((((5 * year) / 4) + 4) % 7))
-      octoberSunday = math.ceil(31 - ((((5 * year) / 4) + 1) % 7))
-
-      --In march, we are DST if our previous sunday was on or after the 8th.
-      if month == 3 then if day >= marchSunday then return 1 else return 0 end end
-      --In november we must be before the first sunday to be dst.
-      --That means the previous sunday must be before the 1st.
-      if day < octoberSunday then return 1 else return 0 end
-  end
-
-  local offset = 1 + IsDST(day, month, year)
-  return tostring(year).."-"..string.format("%02d", month).."-"..string.format("%02d", day).."T"..
-          string.format("%02d", hour)..":"..string.format("%02d", minute)..":"..string.format("%02d",second)
-
+  return tostring(year) .. "-" .. string.format("%02d", month) .. "-" .. string.format("%02d", day) .. "T" ..
+         string.format("%02d", hour) .. ":" .. string.format("%02d", minute) .. ":" .. string.format("%02d", second)
+--  return string.format("%s-%02d-%02dT%02d:%02d:%02d",
+--                       tostring(year), month, day, hour, minute, second)
 end
 
---******************* METADATA FUNCTIONS ***********************
+--- Decomposes the given date in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm` (length 25).<br/>
+--- NOTE: The minimum accepted ISO date is `yyyy-mm-ddThh:mm:ss` (length 19); also accepted
+--- is `yyyy-mm-ddThh:mm:ssZ` (UTC length 20) and `yyyy-mm-ddThh:mm:ss±hh` (length 22).<br/>
+---Raises an error if the string is not an ISO 8601 date or a date part can't be converted.
+---@param isoDate string The date in ISO 8601 format.
+---@return table # A table with all of the ISO date parts:
+---   * `year`, `month`, `day` integer
+---   * `hours`, `minute`, `second` integer
+---   * `timezoneHour`, `timezoneMinute` integer 
+local function decomposeIsoDate(isoDate)
+  assert(isoDate)
 
----
--- Read from metadata.
--- @treturn Nil if metadata is empty
--- @treturn table
+  -- ISO 8601: y y y y - m m - d d T h h : m m : s s ± h h : m m
+  -- Position: 1       5     8     11    14    17    20    23  25
+
+  local dateLen = string.len(isoDate)
+  if dateLen < 19 then
+    error("String is too short to be an ISO 8601 date or is incomplete (down to seconds required)")
+  elseif dateLen > 25 then
+    error("String is too long to be an ISO 8601 date")
+  end
+  if string.byte(isoDate, 5)  ~= IsoDate.BYTE_DATE_SEP                        or
+     string.byte(isoDate, 8)  ~= IsoDate.BYTE_DATE_SEP                        or
+     string.byte(isoDate, 11) ~= IsoDate.BYTE_TIME_MARK                       or
+     string.byte(isoDate, 14) ~= IsoDate.BYTE_TIME_SEP                        or
+     string.byte(isoDate, 17) ~= IsoDate.BYTE_TIME_SEP                        or
+     (dateLen == 20 and string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_UTC_MARK) or
+     (dateLen == 22 and
+      (string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_PLUS_MARK or
+       string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_MINUS_MARK))               or
+     (dateLen == 25 and
+      (string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_PLUS_MARK  or
+       string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_MINUS_MARK or
+       string.byte(isoDate, 23) ~= IsoDate.BYTE_TIME_SEP)) then
+    error("String is not an ISO 8601 date")
+  end
+
+  local year = tonumber(string.sub(isoDate, 1, 4))
+  if not year then error("Can't convert year to number") end
+  local month = tonumber(string.sub(isoDate, 6, 7))
+  if not month then error("Can't convert month to number") end
+  local day = tonumber(string.sub(isoDate, 9, 10))
+  if not day then error("Can't convert day to number") end
+
+  local hour = tonumber(string.sub(isoDate, 12, 13))
+  if not hour then error("Can't convert hour to number") end
+  local minute = tonumber(string.sub(isoDate, 15, 16))
+  if not minute then error("Can't convert minute to number") end
+  local second = tonumber(string.sub(isoDate, 18, 19))
+  if not second then error("Can't convert second to number") end
+
+  local timezoneHour, timezoneMinute
+  if dateLen == 22 then
+    timezoneHour = tonumber(string.sub(isoDate, 21, 22))
+    if not timezoneHour then error("Can't convert time zone hour to number") end
+  else
+    timezoneHour = 0
+  end
+  if dateLen == 25 then
+    timezoneMinute = tonumber(string.sub(isoDate, 24, 25))
+    if not timezoneMinute then error("Can't convert time zone minute to number") end
+  else
+    timezoneMinute = 0
+  end
+
+  return {
+    year = year, month = month, day = day, hour = hour, minute = minute, second = second,
+    timezoneHour = timezoneHour, timezoneMinute = timezoneMinute,
+  }
+end
+
+--- Clones the object in a custom way.
+--- If the object is a table and for all its table fields recursively, it does a deep
+--- clone. For all non-table fields recursively, or if the object is not a table, it
+--- does a shallow clone.
+--- There are two aspects this function does not handle:
+--- * metatables
+--- * recursive tables.
+---@param obj any The object to be cloned
+---@return any # The cloned object
+local function cloneTablesDeepOthersShallow(obj)
+  if type(obj) ~= "table" then return obj end
+
+  local res = {}
+  for k, v in pairs(obj) do
+    res[cloneTablesDeepOthersShallow(k)] = cloneTablesDeepOthersShallow(v)
+  end
+  return res
+end
+
+--- Determines if a string is nil or empty, or contains only whitespaces.
+---@param str any The string
+---@return boolean `true` if the string is nil or empty or only whitespaces, otherwise `false`
+local function isNilOrWhitespaceString(str)
+  if not str or str:len() == 0 then return true end
+  return (str:find("^%s+$")) ~= nil
+end
+
+--********** END Helper functions *****************************
+
+
+--********** Metadata functions *******************************
+
+--- Reads the queue from the script metadata, indexed by "key" key.
+-- @treturn table|nil The metadata queue indexed by "key" if present, otherwise `nil`
 function readMD()
   local metaTab = vpos.script.currentScript():getMetaData()
   if not metaTab or not next(metaTab) then
@@ -63,43 +238,45 @@ function readMD()
   end
 end
 
----
--- Write to metadata.
--- @tparam table queue
+--- Writes the queue to the script metadata, indexed by the given key.
+-- @tparam table q The queue
+-- @tparam[opt] string key The key at which the queue is indexed in the metadata
 function writeMD(q, key)
   if not q or not next(q) then return end
   key = key or "key"
-  local metaTab = { key=q }
-  local status = vpos.script.currentScript():setMetaData(metaTab)
+  local metaTab = {key = q}
+  return vpos.script.currentScript():setMetaData(metaTab)
 end
 
+--- Clears the script metadata.
+-- Practically, erases the log queue and saves this empty queue to the metadata.
+function clearMD()
+  eraseQueue(logList)
+  writeMD(logList)
+end
+
+--********** END Metadata functions ***************************
 
 
---******************* END METADATA FUNCTIONS *******************
+--********** Queue functions **********************************
 
-
----
--- Get queue size.
--- @tparam table queue
--- @treturn number
+--- Gets the queue size.
+-- @tparam table q The queue
+-- @treturn number The queue size
 function queueSize(q)
   return math.abs(q.first) - math.abs(q.last) + 1
 end
 
-
----
--- Check if queue is empty.
--- @tparam table queue
--- @treturn boolean
+--- Checks if the queue is empty.
+-- @tparam table q The queue
+-- @treturn boolean `true` if the queue is empty, otherwise `false`
 function isQueueEmpty(q)
   if not q.first or not q.last then return true end
   if q.first > q.last then return true else return false end
 end
 
-
----
--- Erase all the elements from a queue.
--- @tparam table queue
+--- Erases all elements from the queue.
+-- @tparam table q The queue
 function eraseQueue(q)
   for i in pairs(q) do
     q[i] = nil
@@ -108,16 +285,8 @@ function eraseQueue(q)
   q.last = -1
 end
 
----
--- Erase log queue and save it to MetaData
-function clearMD()
-  eraseQueue(logList)
-  writeMD(logList)
-end
-
----
--- Dump the queue to file
--- @tparam table queue
+--- Dumps the queue to file.
+-- @tparam table q The queue
 function dumpQueue(q)
   -- dump all to file logger.log
   local f = getLogFile("logger.vsp", 500)
@@ -126,8 +295,8 @@ function dumpQueue(q)
   local count = 0
   q.first = nil
   q.last = nil
-  for k,v in pairs(q) do
-      message = message..v.scriptName.." " .. v.datetime .. " " .. v.message .. "\n"
+  for k, v in pairs(q) do
+      message = message .. v.scriptName .. " " .. v.datetime .. " " .. v.message .. "\n"
       size = size + #message
       if size > 5000 then
         f.fh:write(message)
@@ -142,14 +311,13 @@ function dumpQueue(q)
   return count
 end
 
----
--- Initialize queue as an empty queue or with
--- data from metadata.
--- @tparam boolean metaInit
--- @treturn table
+--- Gets the initial queue.
+-- Gets the queue saved in the script metadata if present, otherwise an empty and
+-- initialized queue.
+-- @treturn table The inital queue
 -- @see readMD
 -- @see isQueueEmpty
-function queueInit()
+function getInitialQueue()
   local ok, initMetaData = pcall(readMD)
   assert(ok, initMetaData)
   if ok and initMetaData and not isQueueEmpty(initMetaData) then
@@ -158,7 +326,6 @@ function queueInit()
     return {first = 0, last = -1}
   end
 end
-
 
 ---
 -- Get the element from the head of the queue.
@@ -175,19 +342,6 @@ function dropHeadElem(q, use)
   if use then return unfit end
 end
 
-
--- There are two aspects this does not handle:
--- * metatables
--- * recursive tables
-function copy(obj)
-  if type(obj) ~= 'table' then return obj end
-  local res = {}
-  for k, v in pairs(obj) do res[copy(k)] = copy(v) end
-  return res
-end
-
-
----
 ---
 -- Enqueue.
 -- @tparam table queue
@@ -198,11 +352,10 @@ function ListPushLeft(value)
   value.datetime = value.datetime or dateISO()
   value.priority = value.priority or "22"
   logList.first = first
-  logList[first] = copy(value)
+  logList[first] = cloneTablesDeepOthersShallow(value)
   -- save the new queue to metadata
   writeMD(logList)
 end
-
 
 ---
 -- Get(read) the element from the head of the list.
@@ -214,7 +367,6 @@ function ListGetRight(q)
   return q[last]
 end
 
-
 ---
 -- Dequeue.
 -- @tparam table queue
@@ -223,17 +375,6 @@ function ListPopRight(q)
   q[last] = nil
   q.last = last - 1
 end
-
----
--- Function to show the status of the fiscal printer
--- @tparam string msg message to be shown as status
--- @tparam number subNumber the ID of the view where the status is shown
-local function showStatus(msg, subNumber)
-  local wndSubNum = subNumber or 69
-  local gestoInfo = vpos.view.LayoutWindow(wndSubNum)
-  gestoInfo:setText(msg)
-end
-
 
 ---
 -- Send the logs and update the queue and metadata
@@ -253,25 +394,24 @@ function sendFromQueue(q)
         writeMD(q)
       else
         ListPushLeft({scriptName="logger.vsp",
-              url="logs6.papertrailapp.com:17732",
+              url=URL_PAPERTRAIL,
               logType="online",
               logSize=300,
               priority="11",
-              messageLevel="error",
+              messageLevel=logLevel.Error,
               message= err})
       end
     else
       ListPushLeft({scriptName="logger.vsp",
-              url="logs6.papertrailapp.com:17732",
+              url=URL_PAPERTRAIL,
               logType="online",
               logSize=300,
               priority="11",
-              messageLevel="error",
+              messageLevel=logLevel.Error,
               message= err})
     end
   end
 end
-
 
 ---
 -- Manage the queue
@@ -280,35 +420,35 @@ function handleQueue(q)
   if not isQueueEmpty(q) then
     local qSize = queueSize(q)
     --showStatus("Q:"..tostring(qSize))
-    if qSize > 150 then
+    if qSize > MAX_LOG_LIST_SIZE_BEFORE_DUMP then
       local ok, resp = pcall(dumpQueue, q)
       assert(ok, resp)
       --initialse empty queue
       eraseQueue(q)
 
       ListPushLeft({scriptName="logger.vsp",
-              url="logs6.papertrailapp.com:17732",
+              url=URL_PAPERTRAIL,
               logType="online",
               logSize=300,
               priority="11",
-              messageLevel="error",
+              messageLevel=logLevel.Error,
               message= "QUEUE WAS ERASED:"..tostring(resp)})
-      ok, resp = pcall(writeMD, q)
-      assert(ok, resp)
+      local resp2
+      ok, resp2 = pcall(writeMD, q)
+      assert(ok, resp2)
     else
       local limit
-      if qSize > 10 then limit = 10 else limit = qSize end
+      if qSize < MAX_LOG_LIST_SEND_LINES then limit = qSize else limit = MAX_LOG_LIST_SEND_LINES end
       for i=1,limit do
-
         local ok, resp = pcall(sendFromQueue, q)
         assert(ok, resp)
         if not ok then
           ListPushLeft({scriptName="logger.vsp",
-                url="logs6.papertrailapp.com:17732",
+                url=URL_PAPERTRAIL,
                 logType="online",
                 logSize=300,
                 priority="11",
-                messageLevel="error",
+                messageLevel=logLevel.Error,
                 message= resp})
         end
       end
@@ -316,24 +456,49 @@ function handleQueue(q)
   end
 end
 
+--********** END Queue functions *******************************
 
----
--- Initialise the queue from MetaData if possible
-function scriptInit()
-  ok, logList = pcall(queueInit)
-  assert(ok, logList)
-  if not ok then
-    ok, logList = pcall(queueInit)
-    assert(ok, logList)
-    writeMD()
-  end
+
+--********** File functions ************************************
+
+--- Gets the file extension from the file name (without a path).
+---@param fileName string? The file name (without a path)
+---@return string? # The file extension on successful extraction, otherwise `nil`
+local function get_file_extension_from_name(fileName)
+  if not fileName then return nil end
+
+  local i, _ = fileName:find("%.%w*$")
+  return ((not i or (i == 1)) and "") or fileName:sub(i + 1)
 end
 
+--- Gets the base file name, namely the file name without the extension, from the file name
+--- (without a path).
+---@param fileName string? The file name (without a path)
+---@return string? # The base file name on successful extraction, otherwise `nil`
+local function get_base_file_name_from_name(fileName)
+  if not fileName then return nil end
 
----
--- Checks for existance of a file
--- @tparam string fn file to be checked
--- @treturn bool true if exists
+  local i, _ = fileName:find("%.%w*$")
+  return ((not i or (i == 1)) and fileName) or fileName:sub(1, i - 1)
+end
+
+local function removeLogBackupSuffixFromBaseFileName(baseFileName)
+  if not baseFileName then return nil end
+
+  local i, _ = baseFileName:find("%.1$")
+  return ((not i or (i == 1)) and baseFileName) or baseFileName:sub(1, i - 1)
+end
+
+local function getBaseFileNameWithoutLogBackupSuffixFromName(fileName)
+  if not fileName then return nil end
+
+  local baseFileName = get_base_file_name_from_name(fileName)
+  return removeLogBackupSuffixFromBaseFileName(baseFileName)
+end
+
+--- Checks for the existance of the file.
+-- @tparam string fn File name/path to be checked
+-- @treturn boolean `true` if the file exists, otherwise `false`
 function file_exists(fn, host)
   if not fn then return false end
   allowedHosts = {["VPOS"] = 1, ["FILE"] = 1, ["MEDIAFILE"] = 1}
@@ -341,7 +506,7 @@ function file_exists(fn, host)
   local i, j = string.find(fn, ":")
   local fileHost
   if i then
-    fileHost = fn:sub(1,j-1)
+    fileHost = fn:sub(1, j-1)
     fn = fn:gsub("VPOS:", "")
     fn = fn:gsub("FILE:", "")
   end
@@ -358,16 +523,14 @@ function file_exists(fn, host)
   return false
 end
 
-
 ---
 -- Function that moves/renames a file
 -- @tparam string fn1 source filename
 -- @tparam string fn2 destination filename
 -- @tparam boolean overwrite flag to overwrite existing destination file
 function file_rename(fn1, fn2, overwrite)
-
-  if not file_exists(fn1) then return nil, string.format("Source file %s is missing!", fn1) end
-  if file_exists(fn2) and not overwrite then return nil, string.format("Destination file %s already exists!", fn2) end
+  if not file_exists(fn1) then return false, string.format("Source file %s is missing!", fn1 or "") end
+  if file_exists(fn2) and not overwrite then return false, string.format("Destination file %s already exists!", fn2) end
 
   ok, err = vpos.renameFile(fn1, fn2)
   -- if the error is DestinationFileExists and we have to overwrite
@@ -378,7 +541,6 @@ function file_rename(fn1, fn2, overwrite)
   end
   return ok, err
 end
-
 
 ---
 -- Function which creates a log file having the name of the script and extension ".log"
@@ -419,50 +581,118 @@ function getLogFile(scriptName, logSizeInKB)
   return {fh = fh, size = logSize, scriptFileName = scriptFileName}
 end
 
+--********** END File functions ********************************
 
----
--- Format the message by adding information about the script and POS terminal
--- @tparam table message containing the needed information
--- @tparam bool fallback true if called due to fallback
--- @treturn string outStr log message to send
+
+--********** Message functions *********************************
+
+local function mapMessageLevelToPriority(messageLevel)
+  if not messageLevel then                 assert(false, "Nil message level");  return 14
+  elseif messageLevel == logLevel.Trace or messageLevel == logLevel.Debug then  return 15
+  elseif messageLevel == logLevel.Info then                                     return 14
+  elseif messageLevel == logLevel.Dev then                                      return 13
+  elseif messageLevel == logLevel.Warn then                                     return 12
+  elseif messageLevel == logLevel.Error then                                    return 11
+  else                            assert(false, "Unrecognized message level");  return 14 end
+end
+
+--- Decomposes/Unformats an offline message string/line into its parts, owning to the
+--- logger script.<br/>
+--- Raises an error if the message can't be decomposed or a message part can't be converted.
+---@param str string The message string/line
+---@return table # A table with all of the message string parts:
+---  * `scriptName` string: the script name, which originally logged this message 
+---  * `sendingIsoDate` string: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
+---  * `messageLevel` string: defaulted as `logLevel.Info`
+---  * `messageBody` string: the actual message content
+local function decomposeLoggerOfflineMessageString(str)
+  assert(str)
+
+  local scriptName, sendingIsoDate, messageBody = str:match("^(%S+)%s+(%S+)%s+(.-)[\n\r]$")
+  if not scriptName then error("Can't decompose logger offline message string") end
+
+  return {
+    scriptName = scriptName, sendingIsoDate = sendingIsoDate, messageLevel = logLevel.Info,
+    messageBody = messageBody,
+  }
+end
+
+--- Decomposes/Unformats an offline message string/line into its parts.<br/>
+--- Raises an error if a message part can't be determined or converted.
+---@param str string The message string/line
+---@return table # A table with all of the message string parts:
+---  * `sendingIsoDate` string: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
+---  * `messageLevel` string: the log level
+---  * `qFirst`, `qLast` integer: the original queue boundary indexes
+---  * `messageBody` string: the actual message content
+local function decomposeOfflineMessageString(str)
+  assert(str)
+
+  local sendingIsoDate, messageLevel, qFirstStr, qLastStr, messageBody =
+    str:match("^(%S+) %[(%S+)%] >> ([+-]?%d+):([+-]?%d+) (.-)[\n\r]$")
+  if not sendingIsoDate then error("Can't decompose offline message string") end
+
+  local qFirst = tonumber(qFirstStr)
+  if not qFirst then error("Can't convert queue first index to number") end
+  local qLast = tonumber(qLastStr)
+  if not qLast then error("Can't convert queue last index to number") end
+
+  return {
+    sendingIsoDate = sendingIsoDate, messageLevel = messageLevel,
+    qFirst = qFirst, qLast = qLast, messageBody = messageBody,
+  }
+end
+
+--- Formats the message by adding information about the script and POS terminal.
+--- @param message table Message containing the needed information
+--- @param fallback boolean `true` if called due to fallback
+--- @return string outStr Log message to send
 function formatMessage(message, fallback)
   local outStr = ""
 
   if message.logType == "online" and not fallback then
     local scriptVersion = tostring(vpos.tables.Table(806):getData(message.scriptName, 15) or 0)
     local scriptData = string.format("%s_v:%s", message.scriptName, scriptVersion)
-    local trace = message.messageLevel == "trace" and "[trace] " or ""
+    local trace = (message.messageLevel == logLevel.Trace and "[trace] ") or ""
 
-    outStr = "<"..message.priority..">1 "..message.datetime.." ".. COMP_NAME .. POSNAME ..
-            " " .. scriptData .." - - - ".. trace   .. message.qFirst..":" .. message.qLast .." ".. message.message .. "\n"
+    outStr = "<" .. message.priority .. ">1 " .. message.datetime .. " " .. COMP_NAME .. POS_NAME ..
+             " " .. scriptData .. " - - - " .. trace ..
+             message.qFirst .. ":" .. message.qLast .. " " .. message.message .. "\n"
   else
-    outStr = message.datetime .. " [" .. message.messageLevel .. "] >> ".. message.qFirst..":" .. message.qLast .." " .. message.message .. "\n"
+    outStr = message.datetime .. " [" .. message.messageLevel .. "] >> " ..
+             message.qFirst .. ":" .. message.qLast .. " " .. message.message .. "\n"
   end
 
   return outStr
 end
 
--- Sends the message using sockets
--- If sending over the internet fails, write the message to a file
--- @tparam table message containing the needed information
+local function createOrRecreateLogSocket(url)
+  -- retry to create the socket only after several logs were locally written
+  if (not socket and (offlineCounter == 0 or offlineCounter >= 9)) or offlineCounter >= 9 then
+    local logUrl = url:gsub("http://", "")
+    local address, port = logUrl:match("(.-):(%d+)")
+    assert(address and port)
+    socket = vpos.communication.Socket(address, port, 3000)
+    offlineCounter = 0
+  end
+end
+
+--- Sends the message to be logged.
+-- Sends the message using sockets over the internet (online mode). If this fails
+-- or is explicitly requested, writes the message to a file (offline mode).
+-- @tparam table message Message containing the information to be logged
 function sendMessage(message)
   local ok, outStr = pcall(formatMessage, message)
   assert(ok, outStr)
-  local _,_, scriptFN = string.find(message.scriptName, "(.+)%.(%a+)")
+  local _, _, scriptFN = string.find(message.scriptName, "(.+)%.(%a+)")
 
   if not ok then
-    outStr = "<11>1 "..dateISO().." "..COMP_NAME..POSNAME.." logger.vsp - - - ________PCALL error:"..tostring(outStr).."\n"
+    outStr = "<11>1 " .. dateISO() .. " " .. COMP_NAME .. POS_NAME ..
+             " logger.vsp - - - ________PCALL error:" .. tostring(outStr) .. "\n"
   end
 
   if message.logType == "online" and message.url then
-    logURL = message.url
-    logURL = logURL:gsub("http://", "")
-    _, _, logURL, logPORT = logURL:find("(.-):(%d+)")
-    -- retry to create the socket only after several logs were locally written
-    if (not socket and (offlineCounter == 0 or offlineCounter >= 9)) or offlineCounter >= 9 then
-      socket = vpos.communication.Socket(logURL, logPORT, 3000)
-      offlineCounter = 0
-    end
+    createOrRecreateLogSocket(message.url)
 
     local sent = socket and socket:write(outStr)
     if not sent then
@@ -485,29 +715,347 @@ function sendMessage(message)
     file.fh:write(outStr)
     file.fh:flush()
   end
-
 end
 
+--********** END Message functions *****************************
 
----
--- Timer calling `handleQueue` for sending the log to papertrail
-function logTimer()
-  local ok, err = pcall(handleQueue, logList)
+
+--********** Upload offline logs functions *********************
+
+local function isUploadRound()
+  local split = UploadStopWatch:split()
+  if split < UPLOAD_ROUND_INTERVAL then
+     return false
+  else
+     return true
+  end
+end
+
+local function resetUploadRound()
+  UploadStopWatch:reset()
+  UploadStopWatch:start()
+end
+
+local function determineMaxLogLinesForUploadRound()
+  local logListSize = queueSize(logList)
+  if logListSize > MAX_LOG_LIST_SIZE_FOR_UPLOAD then return 0 end
+
+  local uploadLogLines = MAX_LOG_LIST_SIZE_AFTER_UPLOAD - logListSize
+  if uploadLogLines < MAX_LOG_LINES_TO_UPLOAD then
+    return uploadLogLines
+  else
+    return MAX_LOG_LINES_TO_UPLOAD
+  end
+end
+
+local function isLoggerConnectedOnline()
+  createOrRecreateLogSocket(URL_PAPERTRAIL)
+  if not socket then return false end
+  return socket:isOpen() and socket:isConnected()
+end
+
+local function updateLogFileList()
+  local fileList = vpos.file.getFileList("VPOS")
+
+  -- first mark all log files of the previous round of log file elements as missing
+  for _, fileElem in pairs(LogFileList) do
+    fileElem.isMissingFile = true
+  end
+
+  -- add new log file elements, and update the file size and missing file flag for the existing ones
+  for _, fileName in pairs(fileList) do
+    if get_file_extension_from_name(fileName) == "log" then
+      local scLog = vpos.script.Script {scriptURL = "VPOS:" .. fileName}
+      if not LogFileList[fileName] then
+        LogFileList[fileName] = {readOffset = 0, uploadCounter = 0} -- lastIsoDate = nil
+      end
+      LogFileList[fileName].fileSize      = scLog:getSize()
+      LogFileList[fileName].isMissingFile = false
+    end
+  end
+end
+
+local function deleteLogFileAndFileElement(fileName)
+  assert(fileName)
+  local fileElem = LogFileList[fileName];
+  assert(fileElem and fileElem.isMissingFile ~= nil)
+
+  -- delete the log file
+  local ok = vpos.file.delete("VPOS:" .. fileName)
+  assert((ok and not fileElem.isMissingFile) or (not ok and fileElem.isMissingFile))
+  --TODO add:
+--  if ok and fileElem.isMissingFile then
+--    logDev("Deleted existing " .. fileName .. " marked as missing")
+--  elseif not ok and not fileElem.isMissingFile then
+--    logDev("Can't delete " .. fileName .. " marked as not missing")
+--  end
+
+  -- delete the log file element
+  LogFileList[fileName] = nil
+end
+
+local function deleteMissingAndEmptyLogFilesAndFileElements()
+  for fileName, fileElem in pairs(LogFileList) do
+    assert(fileElem.isMissingFile ~= nil and fileElem.fileSize)
+    if fileElem.isMissingFile or fileElem.fileSize <= 0 then
+      deleteLogFileAndFileElement(fileName)
+    end
+  end
+end
+
+local function determineLogFileToUpload()
+  local fileNameToUpload = nil
+  local minCounter = math.maxinteger
+
+  -- get the first log file element with the minimum upload counter  
+  for fileName, fileElem in pairs(LogFileList) do
+    assert(fileElem.uploadCounter)
+    if fileElem.uploadCounter < minCounter then
+      fileNameToUpload = fileName
+      minCounter = fileElem.uploadCounter
+    end
+  end
+
+  return fileNameToUpload
+end
+
+function decomposeLogFileLine(fileName, line)
+  if fileName == LOGGER_LOG_NAME or fileName == LOGGER_BACKUP_LOG_NAME then
+    return decomposeLoggerOfflineMessageString(line)
+  else
+    return decomposeOfflineMessageString(line)
+  end
+end
+
+--- Determines if a log file line / message string is recent enough for uploading.
+---@param decomposedDate table The decomposed sending ISO date of a log file line / message string
+---@return boolean # `true` if the log file line is recent enough for uploading, otherwise `false`
+local function isRecentLogFileLine(decomposedDate)
+  assert(decomposedDate)
+
+  local date = vpos.datetime.DateTime()
+
+  -- get the reference/minimum date, as Unix time
+  date:add(vpos.datetime.DateField.Day, -UPLOAD_LOG_LINE_AGE_IN_DAYS);
+  local refUnixTime = date:getUnixTime()
+
+  -- set the log line date
+  date:setDate(decomposedDate.day, decomposedDate.month, decomposedDate.year)
+  date:setTime(decomposedDate.hour, decomposedDate.minute, decomposedDate.second)
+
+  -- compare the dates
+  return date:getUnixTime() >= refUnixTime
+end
+
+--- Checks if a log file line / message string is recent enough for uploading, by decomposing
+--- the given ISO date and if ok, determining the recency and updating the last date for the
+--- log file element.
+---@param fileName any The log file name
+---@param isoDate any The sending ISO date of a log file line / message string
+---@return boolean `true` if the log file line is recent enough for uploading, otherwise `false`
+local function checkLogFileLineRecencyAndUpdateFileElementLastDate(fileName, isoDate)
+  assert(fileName)
+  local fileElem = LogFileList[fileName]
+  assert(fileElem)
+
+  local ok, decomposedDate = pcall(decomposeIsoDate, isoDate)
+  if not ok then -- upon errors consider the log line as being recent
+    assert(false, decomposedDate) ---TODO change: logDev()
+    return true
+  end
+
+  -- update the last ISO date of this log file element
+  fileElem.lastIsoDate = isoDate
+
+  return isRecentLogFileLine(decomposedDate)
+end
+
+local function uploadRecentLogFileLine(fileName, line)
+  assert(fileName and line)
+  local fileElem = LogFileList[fileName]
+  assert(fileElem)
+
+  local ok, decomposedMsg = pcall(decomposeLogFileLine, fileName, line)
+  if not ok then -- there can be multi-line messages, unknown formatted messages etc.
+    --NOTE: the log line failed to decompose, so first check if it contains only whitespaces
+    if isNilOrWhitespaceString(line) then return false end
+    local estimatedIsoDate = LogFileList[fileName].lastIsoDate or dateISO()
+    if not checkLogFileLineRecencyAndUpdateFileElementLastDate(fileName, estimatedIsoDate) then
+      return false
+    end
+
+    ListPushLeft({
+      datetime     = estimatedIsoDate,
+      scriptName   = assert(getBaseFileNameWithoutLogBackupSuffixFromName(fileName)) .. ".log",
+      url          = URL_PAPERTRAIL,
+      logType      = "online",
+      logSize      = 300,
+      priority     = mapMessageLevelToPriority(logLevel.Info),
+      messageLevel = logLevel.Info,
+      message      = line,
+    })
+  else
+    --NOTE: the log line succeeded to decompose, so first update the log file element last
+    -- date and then check if the line contains only whitespaces
+    if not checkLogFileLineRecencyAndUpdateFileElementLastDate(fileName, decomposedMsg.sendingIsoDate) then
+      return false
+    end
+    if isNilOrWhitespaceString(decomposedMsg.messageBody) then return false end
+
+    --TODO add!?: the real script name needs to be known, which may have the *.vsc extension
+    local scriptName = decomposedMsg.scriptName or
+                       (assert(getBaseFileNameWithoutLogBackupSuffixFromName(fileName)) .. ".log")
+    ListPushLeft({
+      datetime     = decomposedMsg.sendingIsoDate,
+      scriptName   = scriptName,
+      url          = URL_PAPERTRAIL,
+      logType      = "online",
+      logSize      = 300,
+      priority     = mapMessageLevelToPriority(decomposedMsg.messageLevel),
+      messageLevel = decomposedMsg.messageLevel,
+      message      = decomposedMsg.messageBody,
+    })
+  end
+  return true
+end
+
+local function uploadChunkOfLogFileLines(fileName, maxUploadLogLines)
+  assert(fileName)
+  local fileElem = LogFileList[fileName];
+  assert(fileElem)
+
+  local uploadedLineCount = 0
+  local uploadedSize = 0
+  local processedSize = 0
+
+  local fileHandle, err = io.open("VPOS:" .. fileName, "r") -- open log file
+  if not fileHandle then
+    --TODO add: logDev("Can't open file " .. filename, err)
+    return uploadedSize
+  end
+  assert(fileHandle)
+
+  _, err = fileHandle:seek("set", fileElem.readOffset)
+  if err then
+    --TODO add: logDev("Can't seek in file " .. filename .. " at offset " .. tostring(fileElem.readOffset), err)
+    return uploadedSize
+  end
+
+  while uploadedLineCount < maxUploadLogLines and uploadedSize < LOG_CHUNK_SIZE_TO_UPLOAD do
+    local line = fileHandle:read("L")
+    if not line then break end
+
+    local lineLen = string.len(line)
+    processedSize = processedSize + lineLen
+
+    if uploadRecentLogFileLine(fileName, line) then
+      uploadedLineCount = uploadedLineCount + 1
+      uploadedSize = uploadedSize + lineLen
+    end
+  end
+
+  fileHandle:close()
+  return processedSize
+end
+
+local function updateLogFileElement(fileName, processedSize)
+  assert(fileName)
+  local fileElem = LogFileList[fileName];
+  assert(fileElem)
+
+  -- update the read position for the next upload round / chunk upload from this log file
+  assert(fileElem.readOffset)
+  fileElem.readOffset = fileElem.readOffset + processedSize
+
+  -- increment the upload counter
+  assert(fileElem.uploadCounter)
+  fileElem.uploadCounter = fileElem.uploadCounter + 1
+end
+
+local function deleteFullyProcessedLogFileAndFileElement(fileName)
+  assert(fileName)
+  local fileElem = LogFileList[fileName];
+  assert(fileElem)
+
+  assert(fileElem.readOffset and fileElem.fileSize)
+  if fileElem.readOffset >= fileElem.fileSize then deleteLogFileAndFileElement(fileName) end
+end
+
+function uploadOfflineLogs()
+  --TODO add: offline setting check
+  if not isUploadRound() then return end
+
+  local maxUploadLogLines = determineMaxLogLinesForUploadRound()
+  if maxUploadLogLines <= 0 or not isLoggerConnectedOnline() then resetUploadRound(); return end
+
+  updateLogFileList()
+  deleteMissingAndEmptyLogFilesAndFileElements()
+
+  local fileName = determineLogFileToUpload()
+  if fileName ~= nil then
+    local processedSize = uploadChunkOfLogFileLines(fileName, maxUploadLogLines)
+    updateLogFileElement(fileName, processedSize)
+    deleteFullyProcessedLogFileAndFileElement(fileName)
+  end
+
+  resetUploadRound()
+end
+
+--********** END Upload offline logs functions *****************
+
+
+--********** Timer functions ***********************************
+
+--- Function called on timer timeouts.
+-- Timer function calling `handleQueue` and `uploadOfflineLogs` for sending
+-- the logs to papertrail.
+function onLogTimer()
+  local ok, err = pcall(uploadOfflineLogs, logList)
+  assert(ok, err)
+  ok, err = pcall(handleQueue, logList)
   assert(ok, err)
 end
 
--- format the company name
-COMP_NAME = string.lower(vpos.systeminfo.Company():getName())
-COMP_NAME = COMP_NAME:gsub("sc", ""):gsub(" ", "")
-COMP_NAME = COMP_NAME:sub(1, 4) .. "_"
-POSNAME = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
+--********** END Timer functions *******************************
+
+
+--********** Initialization functions **************************
+
+local function initSettings()
+    -- format the company name
+    COMP_NAME = string.lower(vpos.systeminfo.Company():getName())
+    COMP_NAME = COMP_NAME:gsub("sc", ""):gsub(" ", "")
+    COMP_NAME = COMP_NAME:sub(1, 4) .. "_"
+    POS_NAME = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
+end
+
+local function initLogList()
+  local ok
+  ok, logList = pcall(getInitialQueue)
+  assert(ok, logList)
+  if not ok then
+    ok, logList = pcall(getInitialQueue)
+    assert(ok, logList)
+    writeMD()
+  end
+end
+
+local function initTimers()
+  vpos.events.registerTimerFunction("onLogTimer", LOG_TIMER_INTERVAL)
+  UploadStopWatch:start()
+end
+
+--********** END Initialization functions **********************
+
+
+--********** MAIN **********************************************
+
+initSettings()
+initLogList()
 
 vpos.script.registerAsInterScript()
 
-scriptInit()
-
-
-vpos.events.registerTimerFunction("logTimer", 300)
+initTimers()
 
 ---
 -- @entrypoint ClearMetadata

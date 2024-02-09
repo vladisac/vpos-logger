@@ -1,80 +1,60 @@
 --!ScriptAPI: 1.14
 --!ScriptVersion: 1.8
+
+
 ------------------------------------------------------------------------------
------------ 1. GLOBAL DEFAULTS, add to top of your code and .ini file --------
+----------- 1. GLOBAL DEFAULTS: add to top of your code and .ini file --------
 ------------------------------------------------------------------------------
-
----
--- Debug level
--- @global LOG_LEVEL
-LOG_LEVEL = "info"
-
----
--- Size of the log file in bytes
--- @global LOG_SIZE
-LOG_SIZE = 300
-
----
--- Switch to online or offline/local logs
--- @global LOG_TYPE
-LOG_TYPE = "online"
-
----
--- URL where logs are shown on papertrail
--- @global URL_PAPERTRAIL
-URL_PAPERTRAIL = "http://logs2.papertrailapp.com:21645"
-
------------------------------------------------------------------------------
----------------------------- END 1. GLOBAL DEFAULTS -------------------------
------------------------------------------------------------------------------
-
-
-
------------------------------------------------------------------------------
------------------- 2. Logger definition, add to functions -------------------
------------------------------------------------------------------------------
 
 local logLevel = {
+  Off   = "off",
   Error = "error",
-  Warn = "warn",
-  Info = "info",
+  Warn  = "warn",
+  Info  = "info",
   Debug = "debug",
   Trace = "trace"
 }
 
+---Minimum log level.
+LOG_LEVEL = logLevel.Info
+
+---Size of the log file in bytes.
+LOG_SIZE = 300
+
+---Switch to online or offline/local logs.
+LOG_TYPE = "online"
+
+---URL where logs are shown on papertrail.
+URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
+
+-----------------------------------------------------------------------------
+----------- END 1. GLOBAL DEFAULTS ------------------------------------------
+-----------------------------------------------------------------------------
+
+
+-----------------------------------------------------------------------------
+----------- 2. LOGGER DEFINITION: add to functions --------------------------
+-----------------------------------------------------------------------------
+
+--- Formats the given or current date according to the ISO 8601 format
+--- `yyyy-mm-ddThh:mm:ss±hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
+--- (only the first 19 out of the 25 characters).<br/>
+--- Example of returned date: `2016-11-09T04:25:28` (the full date could be
+--- `2016-11-09T04:25:28+01:00`).
+---@param date? vpos.datetime.DateTime? Date to be formatted; if `nil`, the current date is used
+---@return string # Date formatted as per ISO 8601 format.
 local function dateISO(date)
-  local date = date or vpos.datetime.DateTime ()
-  local day, month, year = date:getDate ()
-  local hour, minute, second = date:getTime ()
+  local date = date or vpos.datetime.DateTime()
+  local day, month, year = date:getDate()
+  local hour, minute, second = date:getTime()
 
-
-  local function IsDST(day, month, year)
-
-      --January, february, november and december are out.
-      if month < 3 or month > 10 then return 0 end
-      --April to October are in
-      if month > 3 and month < 10 then return 1 end
-
-      marchSunday = math.ceil(31 - ((((5 * year) / 4) + 4) % 7))
-      octoberSunday = math.ceil(31 - ((((5 * year) / 4) + 1) % 7))
-
-      --In march, we are DST if our previous sunday was on or after the 8th.
-      if month == 3 then if day >= marchSunday then return 1 else return 0 end end
-      --In november we must be before the first sunday to be dst.
-      --That means the previous sunday must be before the 1st.
-      if day < octoberSunday then return 1 else return 0 end
-  end
-
-  local offset = 1 + IsDST(day, month, year)
-  return tostring(year).."-"..string.format("%02d", month).."-"..string.format("%02d", day).."T"..
-          string.format("%02d", hour)..":"..string.format("%02d", minute)..":"..string.format("%02d",second)
-
+  return tostring(year) .. "-" .. string.format("%02d", month) .. "-" .. string.format("%02d", day) .. "T" ..
+         string.format("%02d", hour) .. ":" .. string.format("%02d", minute) .. ":" .. string.format("%02d", second)
 end
 
----
--- Checks for existance of a file
--- @tparam string fn file to be checked
--- @treturn bool true if exists
+--- Checks for the existance of the file.
+-- @tparam string fn File name/path to be checked
+-- @treturn boolean `true` if the file exists, otherwise `false`
 function file_exists(fn, host)
   if not fn then return false end
   allowedHosts = {["VPOS"] = 1, ["FILE"] = 1, ["MEDIAFILE"] = 1}
@@ -82,7 +62,7 @@ function file_exists(fn, host)
   local i, j = string.find(fn, ":")
   local fileHost
   if i then
-    fileHost = fn:sub(1,j-1)
+    fileHost = fn:sub(1, j-1)
     fn = fn:gsub("VPOS:", "")
     fn = fn:gsub("FILE:", "")
   end
@@ -99,7 +79,6 @@ function file_exists(fn, host)
   return false
 end
 
-
 function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptUpdate, vposName)
   -- create a new instance
   local self = {
@@ -108,10 +87,10 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
 
   -- private fields
   local logTab =  {
-                    level = level or "Info",
+                    level = level or logLevel.Info,
                     logType = logType or "online",
                     logSize = logSize or 300,
-                    url = url or "http://logs2.papertrailapp.com:21645",
+                    url = url or URL_PAPERTRAIL,
                     scriptName = scriptName or " ",
                     scriptVersion = scriptVersion or "0",
                     scriptUpdate = scriptUpdate or " ",
@@ -123,8 +102,6 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     message.datetime = dateISO()
     if not full then
       message.message = message.message:sub(1, LOG_TRUNCATE_SIZE)
-    else
-      message.message = message.message
     end
 
     vpos.script.callInterScriptFunctionExt("VPOS:logger.vsp", "ListPushLeft", {async = true}, message)
@@ -132,7 +109,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
 
   -- send data about the script
   function self.scriptInfo(settings)
-    logTab.messageLevel = "info"
+    logTab.messageLevel = logLevel.Info
     logTab.message = string.format("====== START ======== script:%s __ version:%s __ update:%s __ pv:%s __ serialNo:%s __ ip:%s",
                                     logTab.scriptName, logTab.scriptVersion, logTab.scriptUpdate,
                                     vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion),
@@ -153,18 +130,17 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if level == logLevel.Trace then
       local now = vpos.datetime.DateTime():getUnixTime() or ""
       logTab.message = now .. "@ " .. (message or "")
-      logTab.messageLevel = "trace"
+      logTab.messageLevel = logLevel.Trace
       logTab.priority = 15
       logData(logTab, full)
     end
   end
 
-
   -- used for 'Debug' log level
   function self.debug(message, full)
     if level == logLevel.Trace or level == logLevel.Debug then
       logTab.message = message or ""
-      logTab.messageLevel = "debug"
+      logTab.messageLevel = logLevel.Debug
       logTab.priority = 15
       logData(logTab, full)
     end
@@ -174,7 +150,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   function self.info(message, full)
     if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info  then
       logTab.message = message or ""
-      logTab.messageLevel = "info"
+      logTab.messageLevel = logLevel.Info
       logTab.priority = 14
       logData(logTab, full)
     end
@@ -184,7 +160,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   function self.warn(message, full)
     if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info  or level == logLevel.Warn then
       logTab.message = message or ""
-      logTab.messageLevel = "warn"
+      logTab.messageLevel = logLevel.Warn
       logTab.priority = 12
       logData(logTab, full)
     end
@@ -194,8 +170,8 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   function self.error(message)
     if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info  or level == logLevel.Warn or level == logLevel.Error then
       local line = tostring(debug.getinfo(2, "l").currentline) or " "
-      logTab.message = string.format("%4s", line) .. ": " .. message or ""
-      logTab.messageLevel = "error"
+      logTab.message = string.format("%4s", line) .. ": " .. (message or "")
+      logTab.messageLevel = logLevel.Error
       logTab.priority = 11
       logData(logTab, true)
     end
@@ -205,16 +181,17 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
 end
 
 -----------------------------------------------------------------------------
--------------- END 2. Logger definition, add to functions -------------------
+----------- END 2. LOGGER DEFINITION ----------------------------------------
 -----------------------------------------------------------------------------
 
 
 function readIni()
-  -------------------------------------------------------------------------------------------
-  ------------------------------- 3. INITIALIZATION PROCEDURE  ------------------------------
-  -------------------------------------------------------------------------------------------
-  --- read logger settings, initialize logger, call scriptInfo to log your script ini file --
-  -------------------------------------------------------------------------------------------
+
+  -----------------------------------------------------------------------------
+  ----------- 3. INITIALIZATION PROCEDURE: ------------------------------------
+  ----------- read logger settings, initialize logger, ------------------------
+  ----------- call scriptInfo to log your script ini file ---------------------
+  -----------------------------------------------------------------------------
 
   if initTab.LOGS then
     LOG_LEVEL = initTab.LOGS.LOG_LEVEL and string.lower(tostring(initTab.LOGS.LOG_LEVEL)) or LOG_LEVEL
@@ -235,15 +212,15 @@ function readIni()
     scriptUpdate = "plsUpdate VPOS"
   end
 
-  if LOG_LEVEL == "off" then
+  if LOG_LEVEL == logLevel.Off then
     -- create a mock "object" with no functionality
     log = {
-      ["scriptInfo"] = function() end,
-      ["trace"] = function() end,
-      ["debug"] = function() end,
-      ["info"] = function() end,
-      ["warn"] = function() end,
-      ["error"] = function() end
+      ["scriptInfo"]   = function() end,
+      [logLevel.Trace] = function() end,
+      [logLevel.Debug] = function() end,
+      [logLevel.Info]  = function() end,
+      [logLevel.Warn]  = function() end,
+      [logLevel.Error] = function() end
     }
   else
     if not file_exists("logger.vsp") then
@@ -251,7 +228,7 @@ function readIni()
       vpos.script.exitScript()
     end
     log = logger(LOG_LEVEL, LOG_TYPE, LOG_SIZE, URL_PAPERTRAIL, scriptName,
-                    scriptVersion, scriptUpdate, posName)
+                 scriptVersion, scriptUpdate, posName)
   end
 
   -- hide passwords from ini files so they are not logged
@@ -270,10 +247,9 @@ function readIni()
     log.scriptInfo()
   end
 
-  -------------------------------------------------------------------------------------------
-  --------------------------- END 3. INITIALIZATION PROCEDURE  ------------------------------
-  -------------------------------------------------------------------------------------------
-
+  -----------------------------------------------------------------------------
+  ----------- END 3. INITIALIZATION PROCEDURE  --------------------------------
+  -----------------------------------------------------------------------------
 
 end
 
@@ -293,23 +269,22 @@ end
 
 
 
----------------------------------------------------------------------------
------ TESTs ---------------------------------------------------------------
----------------------------------------------------------------------------
-
-
+-------------------------------------------------------------------------------
+----------- TESTS -------------------------------------------------------------
+-------------------------------------------------------------------------------
 
 ------------------------------------------------------------------
---off
+-- traces off
 ------------------------------------------------------------------
+
 function testOff()
   wait:setText("offline off")
   wait:show()
 
-  initTab.LOGS.LOG_LEVEL = "off"
+  initTab.LOGS.LOG_LEVEL = logLevel.Off
   initTab.LOGS.LOG_TYPE = "offline"
   initTab.LOGS.LOG_SIZE = 1000
-  initTab.LOGS.URL_PAPERTRAIL = "http://logs2.papertrailapp.com:21645"
+  initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL
 
   readIni()
 
@@ -320,15 +295,16 @@ function testOff()
   log.trace ("TRACE:var=123012 queue size = 20")
   wait:close()
 end
+
 ------------------------------------------------------------------
---online trace
+-- online traces
 ------------------------------------------------------------------
 
 function testOnline()
   wait:setText("online trace")
   wait:show()
 
-  initTab.LOGS.LOG_LEVEL = "trace"
+  initTab.LOGS.LOG_LEVEL = logLevel.Trace
   initTab.LOGS.LOG_TYPE = "online"
   initTab.LOGS.LOG_SIZE = 1000
   initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL
@@ -361,7 +337,6 @@ function testOnline()
   wait:close()
   vpos.view.showWindow("Test DONE!\001Check PaperTrail!")
 end
-
 
 function testOnlineFastlogs()
   wait:setText("online fast logs")
@@ -410,9 +385,11 @@ function testOnlineFastlogs()
   wait:close()
   vpos.view.showWindow("Test DONE!\001Check PaperTrail!")
 end
+
 ------------------------------------------------------------------
---offline fallback to file & size
+-- offline traces with fallback to file & size
 ------------------------------------------------------------------
+
 function testOfflineSize()
   wait:setText("offline trace & size")
   wait:show()
@@ -506,14 +483,18 @@ function testOfflineFastlogs()
 end
 
 
-wait = vpos.view.InfoWindow("tests", "tests", false)
+-------------------------------------------------------------------------------
+----------- MAIN section: clean tests related code in production --------------
+-------------------------------------------------------------------------------
 
+wait = vpos.view.InfoWindow("tests", "tests", false)
 
 
 initTab = {}
 initTab.LOGS = {}
 
 readIni()
+
 
 --testOff()
 --testOnline()
