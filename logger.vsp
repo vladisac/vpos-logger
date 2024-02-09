@@ -9,7 +9,7 @@
 --********** Global constants and enums ***********************
 
 ---@enum logLevel
-local logLevel = {
+logLevel = {
   Off   = "off",
   Error = "error",
   Warn  = "warn",
@@ -860,8 +860,7 @@ local function isRecentLogFileLine(decomposedDate)
   local date = vpos.datetime.DateTime()
 
   -- get the reference/minimum date, as Unix time
---  date:add(vpos.datetime.DateField.Day, -UPLOAD_LOG_LINE_AGE_IN_DAYS);
-  date:add(vpos.datetime.DateField.Year, -1);
+  date:add(vpos.datetime.DateField.Day, -UPLOAD_LOG_LINE_AGE_IN_DAYS);
   local refUnixTime = date:getUnixTime()
 
   -- set the log line date
