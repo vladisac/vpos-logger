@@ -90,13 +90,16 @@ assert = function(...) end
 
 --- The logging list/queue containing all current messages to be logged.
 logList = {}
+--- Table with necessary informations about the current physical log file, like the file
+--- handle and a file size function.
+LogFile = nil
 
 --- The socket for sending the log lines/messages online.
 socket = nil
 --- Count the number of logging fallbacks to file.
 offlineCounter = 0
 
---- Table with necessary informations about the currently uploading offline log file.
+--- Table with necessary informations about the current uploading offline log file.
 UploadingLogFile = {}
 --- Stop watch for uploading offline saved logs.
 UploadStopWatch = vpos.datetime.StopWatch()
@@ -716,12 +719,12 @@ function sendMessage(message)
 
   if fallbackToFile then
     local scriptBaseName = get_base_file_name_from_name(message.scriptName)
-    if not file or file.size() >= message.logSize or
-       scriptBaseName ~= file.scriptBaseName then
-      file = getLogFile(message.scriptName, message.logSize)
+    if not LogFile or LogFile.size() >= message.logSize or
+       scriptBaseName ~= LogFile.scriptBaseName then
+      LogFile = getLogFile(message.scriptName, message.logSize)
     end
-    file.fh:write(outStr)
-    file.fh:flush()
+    LogFile.fh:write(outStr)
+    LogFile.fh:flush()
   end
 end
 
@@ -781,6 +784,7 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
       end
     end
   end
+  -- the previous uploading log file doesn't exist anymore
   UploadingLogFile = {}
 
   -- add a new uploading log file, while deleting encountered empty log files
@@ -841,7 +845,7 @@ local function checkLineRecencyThenUpdateLastDateOfUploadingLogFile(isoDate)
     return true
   end
 
-  -- update the last ISO date of the currently uploading log file
+  -- update the last ISO date of the current uploading log file
   UploadingLogFile.lastIsoDate = isoDate
 
   return isRecentLogFileLine(decomposedDate)
