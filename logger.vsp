@@ -904,14 +904,14 @@ local function uploadChunkOfLogFileLines(maxUploadLogLines)
   local fileHandle, err = io.open("VPOS:" .. fileName, "r") -- open log file
   if not fileHandle then
     --TODO add: logDev("Can't open file " .. filename, err)
-    return uploadedSize
+    return processedSize
   end
   assert(fileHandle)
 
   _, err = fileHandle:seek("set", UploadingLogFile.readOffset)
   if err then
     --TODO add: logDev("Can't seek in file " .. fileName .. " at offset " .. tostring(UploadingLogFile.readOffset), err)
-    return uploadedSize
+    return processedSize
   end
 
   while uploadedLineCount < maxUploadLogLines and uploadedSize < LOG_CHUNK_SIZE_TO_UPLOAD do
