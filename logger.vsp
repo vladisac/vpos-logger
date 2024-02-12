@@ -688,39 +688,36 @@ local function createOrRecreateLogSocket(url)
   end
 end
 
---- Sends the message to be logged.
--- Sends the message using sockets over the internet (online mode). If this fails
--- or is explicitly requested, writes the message to a file (offline mode).
--- @tparam table message Message containing the information to be logged
+--- Sends the message to be logged using sockets over the internet (online mode). If
+--- this fails or is explicitly requested, writes the message to a file (offline mode).
+---@param message table Message table containing the information to be logged
 function sendMessage(message)
   local ok, outStr = pcall(formatMessage, message)
   assert(ok, outStr)
-  local _, _, scriptFN = string.find(message.scriptName, "(.+)%.(%a+)")
-
   if not ok then
     outStr = "<11>1 " .. dateISO() .. " " .. COMP_NAME .. POS_NAME ..
              " logger.vsp - - - ________PCALL error:" .. tostring(outStr) .. "\n"
   end
 
+  local fallbackToFile = false
   if message.logType == "online" and message.url then
     createOrRecreateLogSocket(message.url)
 
     local sent = socket and socket:write(outStr)
     if not sent then
+      fallbackToFile = true
       offlineCounter = offlineCounter + 1
-
-      -- fallback to file
       ok, outStr = pcall(formatMessage, message, true)
       assert(ok, outStr)
-      if not file or file.size() >= message.logSize or scriptFN ~= file.scriptBaseName then
-        file = getLogFile(message.scriptName, message.logSize)
-      end
-      file.fh:write(outStr)
-      file.fh:flush()
     end
   else
-    -- fallback to file
-    if not file or file.size() >= message.logSize or scriptFN ~= file.scriptBaseName then
+    fallbackToFile = true
+  end
+
+  if fallbackToFile then
+    local scriptBaseName = get_base_file_name_from_name(message.scriptName)
+    if not file or file.size() >= message.logSize or
+       scriptBaseName ~= file.scriptBaseName then
       file = getLogFile(message.scriptName, message.logSize)
     end
     file.fh:write(outStr)
