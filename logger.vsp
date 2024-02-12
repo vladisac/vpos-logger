@@ -532,7 +532,7 @@ function file_rename(fn1, fn2, overwrite)
   if not file_exists(fn1) then return false, string.format("Source file %s is missing!", fn1 or "") end
   if file_exists(fn2) and not overwrite then return false, string.format("Destination file %s already exists!", fn2) end
 
-  ok, err = vpos.renameFile(fn1, fn2)
+  local ok, err = vpos.renameFile(fn1, fn2)
   -- if the error is DestinationFileExists and we have to overwrite
   if not ok and err == 1 and overwrite then
     ok, err = vpos.file.delete(fn2)
@@ -544,8 +544,8 @@ end
 
 local function deleteLogFile(filePath)
   assert(filePath)
-  local ok = vpos.file.delete(filePath)
-  assert(ok) --TODO add: logDev("Couldn't delete file " .. fileName)
+  local ok, errNo = vpos.file.delete(filePath)
+  assert(ok) --TODO add: logDev("Couldn't delete file " .. fileName .. ": " .. tostring(errNo))
 end
 
 --- Creates or opens a log file having the script's base name and extension ".log".
@@ -556,10 +556,11 @@ function getLogFile(scriptName, logSizeInKB)
   local fileSize = logSizeInKB or 300
   local scriptBaseName = get_base_file_name_from_name(scriptName)
   local fileName = tostring(scriptBaseName or "log") .. ".log"
+  local filePath = "VPOS:" .. fileName
 
   local logSize = function()
-                    if vpos.script.Script(fileName) then
-                      return tonumber(vpos.script.Script(fileName):getSize())/1000 or 0
+                    if vpos.script.Script(filePath) then
+                      return tonumber(vpos.script.Script(filePath):getSize())/1000 or 0
                     else
                       return 0
                     end
@@ -568,23 +569,23 @@ function getLogFile(scriptName, logSizeInKB)
   local curSize = logSize()
   local fh, errMsg
   if curSize < fileSize then
-    fh, errMsg = io.open("VPOS:" .. fileName, "a+")
-    assert(fh, errMsg)
-  else
-    local backupFile = fileName:sub(1, -5) .. ".1.log"
-    local ok, err = pcall(file_rename, "VPOS:" .. fileName, "VPOS:" .. backupFile, true)
-    assert(ok, err)
-    if not err then deleteLogFile("VPOS:" .. fileName) end
-    fh, errMsg = io.open("VPOS:"..fileName, "w")
+    fh, errMsg = io.open(filePath, "a+")
     assert(fh, errMsg)
   end
-
-  if not fh then
-    local backupFile = fileName:sub(1, -5) .. ".1.log"
-    local ok, err = pcall(file_rename, "VPOS:" .. fileName, "VPOS:" .. backupFile, true)
-    assert(ok, err)
-    if not err then deleteLogFile("VPOS:" .. fileName) end
-    fh, errMsg = io.open("VPOS:"..fileName, "w")
+   -- backup the log file
+  if not fh or curSize >= fileSize then
+    local backupFileName = fileName:sub(1, -5) .. ".1.log"
+    local backupFilePath = "VPOS:" .. backupFileName
+    local ok, err = pcall(file_rename, filePath, backupFilePath, true)
+    assert(not fh or ok, err) --TODO add: logDev()
+    if not err then
+      -- update the uploading log file name
+      if UploadingLogFile.fileName == fileName then
+        UploadingLogFile.fileName = backupFileName
+      end
+      vpos.file.delete(filePath)
+    end
+    fh, errMsg = io.open(filePath, "w")
     assert(fh, errMsg)
   end
 
