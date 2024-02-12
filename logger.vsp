@@ -548,14 +548,15 @@ local function deleteLogFile(filePath)
   assert(ok) --TODO add: logDev("Couldn't delete file " .. fileName)
 end
 
----
--- Function which creates a log file having the name of the script and extension ".log"
--- @tparam string scriptName name of the script
--- @treturn table containing the file handler and a function to get the updated log size
+--- Creates or opens a log file having the script's base name and extension ".log".
+---@param scriptName string The script name
+---@param logSizeInKB number? The log size in kilobytes
+---@return table # A table containing the log file handler and a function to get the updated log size
 function getLogFile(scriptName, logSizeInKB)
   local fileSize = logSizeInKB or 300
-  local _,_, scriptFileName, scriptFileExtension = string.find(scriptName, "(.+)%.(%a+)")
-  local fileName = tostring(scriptFileName or "log") .. ".log"
+  local scriptBaseName = get_base_file_name_from_name(scriptName)
+  local fileName = tostring(scriptBaseName or "log") .. ".log"
+
   local logSize = function()
                     if vpos.script.Script(fileName) then
                       return tonumber(vpos.script.Script(fileName):getSize())/1000 or 0
@@ -563,12 +564,15 @@ function getLogFile(scriptName, logSizeInKB)
                       return 0
                     end
                   end
-  if logSize() < fileSize then
-    fh, errMsg = io.open("VPOS:"..fileName, "a+")
+
+  local curSize = logSize()
+  local fh, errMsg
+  if curSize < fileSize then
+    fh, errMsg = io.open("VPOS:" .. fileName, "a+")
     assert(fh, errMsg)
   else
     local backupFile = fileName:sub(1, -5) .. ".1.log"
-    ok, err, e = pcall(file_rename, "VPOS:"..fileName, "VPOS:"..backupFile, true)
+    local ok, err = pcall(file_rename, "VPOS:" .. fileName, "VPOS:" .. backupFile, true)
     assert(ok, err)
     if not err then deleteLogFile("VPOS:" .. fileName) end
     fh, errMsg = io.open("VPOS:"..fileName, "w")
@@ -577,14 +581,14 @@ function getLogFile(scriptName, logSizeInKB)
 
   if not fh then
     local backupFile = fileName:sub(1, -5) .. ".1.log"
-    ok, err, e = pcall(file_rename, "VPOS:"..fileName, "VPOS:"..backupFile, true)
+    local ok, err = pcall(file_rename, "VPOS:" .. fileName, "VPOS:" .. backupFile, true)
     assert(ok, err)
     if not err then deleteLogFile("VPOS:" .. fileName) end
     fh, errMsg = io.open("VPOS:"..fileName, "w")
     assert(fh, errMsg)
   end
 
-  return {fh = fh, size = logSize, scriptFileName = scriptFileName}
+  return {fh = fh, size = logSize, scriptBaseName = scriptBaseName}
 end
 
 --********** END File functions ********************************
@@ -707,7 +711,7 @@ function sendMessage(message)
       -- fallback to file
       ok, outStr = pcall(formatMessage, message, true)
       assert(ok, outStr)
-      if not file or file.size() >= message.logSize or scriptFN ~= file.scriptFileName then
+      if not file or file.size() >= message.logSize or scriptFN ~= file.scriptBaseName then
         file = getLogFile(message.scriptName, message.logSize)
       end
       file.fh:write(outStr)
@@ -715,7 +719,7 @@ function sendMessage(message)
     end
   else
     -- fallback to file
-    if not file or file.size() >= message.logSize or scriptFN ~= file.scriptFileName then
+    if not file or file.size() >= message.logSize or scriptFN ~= file.scriptBaseName then
       file = getLogFile(message.scriptName, message.logSize)
     end
     file.fh:write(outStr)
