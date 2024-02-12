@@ -96,8 +96,8 @@ socket = nil
 --- Count the number of logging fallbacks to file.
 offlineCounter = 0
 
---- Table containing information on offline saved logs, for uploading them.
-LogFileList = {}
+--- Table with necessary informations about the currently uploading offline log file.
+UploadingLogFile = {}
 --- Stop watch for uploading offline saved logs.
 UploadStopWatch = vpos.datetime.StopWatch()
 
@@ -542,6 +542,12 @@ function file_rename(fn1, fn2, overwrite)
   return ok, err
 end
 
+local function deleteLogFile(filePath)
+  assert(filePath)
+  local ok = vpos.file.delete(filePath)
+  assert(ok) --TODO add: logDev("Couldn't delete file " .. fileName)
+end
+
 ---
 -- Function which creates a log file having the name of the script and extension ".log"
 -- @tparam string scriptName name of the script
@@ -564,7 +570,7 @@ function getLogFile(scriptName, logSizeInKB)
     local backupFile = fileName:sub(1, -5) .. ".1.log"
     ok, err, e = pcall(file_rename, "VPOS:"..fileName, "VPOS:"..backupFile, true)
     assert(ok, err)
-    if not err then ok, err = vpos.file.delete("VPOS:"..fileName) end
+    if not err then deleteLogFile("VPOS:" .. fileName) end
     fh, errMsg = io.open("VPOS:"..fileName, "w")
     assert(fh, errMsg)
   end
@@ -573,7 +579,7 @@ function getLogFile(scriptName, logSizeInKB)
     local backupFile = fileName:sub(1, -5) .. ".1.log"
     ok, err, e = pcall(file_rename, "VPOS:"..fileName, "VPOS:"..backupFile, true)
     assert(ok, err)
-    if not err then ok, err = vpos.file.delete("VPOS:"..fileName) end
+    if not err then deleteLogFile("VPOS:" .. fileName) end
     fh, errMsg = io.open("VPOS:"..fileName, "w")
     assert(fh, errMsg)
   end
@@ -754,72 +760,46 @@ local function isLoggerConnectedOnline()
   return socket:isOpen() and socket:isConnected()
 end
 
-local function updateLogFileList()
+local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
   local fileList = vpos.file.getFileList("VPOS")
 
-  -- first mark all log files of the previous round of log file elements as missing
-  for _, fileElem in pairs(LogFileList) do
-    fileElem.isMissingFile = true
+  -- update the existing uploading log file if not empty, in which case it'll be deleted
+  if UploadingLogFile.fileName then
+    for _, fileName in pairs(fileList) do
+      if fileName == UploadingLogFile.fileName then
+        local filePath = "VPOS:" .. fileName
+        local logSize = vpos.script.Script{scriptURL = filePath}:getSize()
+        if logSize <= 0 then
+          deleteLogFile(filePath)
+          break
+        else
+          UploadingLogFile.fileSize = logSize
+          return
+        end
+      end
+    end
   end
+  UploadingLogFile = {}
 
-  -- add new log file elements, and update the file size and missing file flag for the existing ones
+  -- add a new uploading log file, while deleting encountered empty log files
   for _, fileName in pairs(fileList) do
     if get_file_extension_from_name(fileName) == "log" then
-      local scLog = vpos.script.Script {scriptURL = "VPOS:" .. fileName}
-      if not LogFileList[fileName] then
-        LogFileList[fileName] = {readOffset = 0, uploadCounter = 0} -- lastIsoDate = nil
+      local filePath = "VPOS:" .. fileName
+      local logSize = vpos.script.Script{scriptURL = filePath}:getSize()
+      if logSize <= 0 then
+        deleteLogFile(filePath)
+      else
+        UploadingLogFile = {fileName = fileName, fileSize = logSize, readOffset = 0}
+        return
       end
-      LogFileList[fileName].fileSize      = scLog:getSize()
-      LogFileList[fileName].isMissingFile = false
     end
   end
 end
 
-local function deleteLogFileAndFileElement(fileName)
-  assert(fileName)
-  local fileElem = LogFileList[fileName];
-  assert(fileElem and fileElem.isMissingFile ~= nil)
+function decomposeUploadingLogFileLine(line)
+  local fileName = UploadingLogFile.fileName
+  assert(UploadingLogFile.fileName)
 
-  -- delete the log file
-  local ok = vpos.file.delete("VPOS:" .. fileName)
-  assert((ok and not fileElem.isMissingFile) or (not ok and fileElem.isMissingFile))
-  --TODO add:
---  if ok and fileElem.isMissingFile then
---    logDev("Deleted existing " .. fileName .. " marked as missing")
---  elseif not ok and not fileElem.isMissingFile then
---    logDev("Can't delete " .. fileName .. " marked as not missing")
---  end
-
-  -- delete the log file element
-  LogFileList[fileName] = nil
-end
-
-local function deleteMissingAndEmptyLogFilesAndFileElements()
-  for fileName, fileElem in pairs(LogFileList) do
-    assert(fileElem.isMissingFile ~= nil and fileElem.fileSize)
-    if fileElem.isMissingFile or fileElem.fileSize <= 0 then
-      deleteLogFileAndFileElement(fileName)
-    end
-  end
-end
-
-local function determineLogFileToUpload()
-  local fileNameToUpload = nil
-  local minCounter = math.maxinteger
-
-  -- get the first log file element with the minimum upload counter  
-  for fileName, fileElem in pairs(LogFileList) do
-    assert(fileElem.uploadCounter)
-    if fileElem.uploadCounter < minCounter then
-      fileNameToUpload = fileName
-      minCounter = fileElem.uploadCounter
-    end
-  end
-
-  return fileNameToUpload
-end
-
-function decomposeLogFileLine(fileName, line)
   if fileName == LOGGER_LOG_NAME or fileName == LOGGER_BACKUP_LOG_NAME then
     return decomposeLoggerOfflineMessageString(line)
   else
@@ -850,37 +830,31 @@ end
 --- Checks if a log file line / message string is recent enough for uploading, by decomposing
 --- the given ISO date and if ok, determining the recency and updating the last date for the
 --- log file element.
----@param fileName any The log file name
 ---@param isoDate any The sending ISO date of a log file line / message string
 ---@return boolean `true` if the log file line is recent enough for uploading, otherwise `false`
-local function checkLogFileLineRecencyAndUpdateFileElementLastDate(fileName, isoDate)
-  assert(fileName)
-  local fileElem = LogFileList[fileName]
-  assert(fileElem)
-
+local function checkLineRecencyThenUpdateLastDateOfUploadingLogFile(isoDate)
   local ok, decomposedDate = pcall(decomposeIsoDate, isoDate)
   if not ok then -- upon errors consider the log line as being recent
     assert(false, decomposedDate) ---TODO change: logDev()
     return true
   end
 
-  -- update the last ISO date of this log file element
-  fileElem.lastIsoDate = isoDate
+  -- update the last ISO date of the currently uploading log file
+  UploadingLogFile.lastIsoDate = isoDate
 
   return isRecentLogFileLine(decomposedDate)
 end
 
-local function uploadRecentLogFileLine(fileName, line)
+local function uploadRecentLogFileLine(line)
+  local fileName = UploadingLogFile.fileName
   assert(fileName and line)
-  local fileElem = LogFileList[fileName]
-  assert(fileElem)
 
-  local ok, decomposedMsg = pcall(decomposeLogFileLine, fileName, line)
+  local ok, decomposedMsg = pcall(decomposeUploadingLogFileLine, line)
   if not ok then -- there can be multi-line messages, unknown formatted messages etc.
     --NOTE: the log line failed to decompose, so first check if it contains only whitespaces
     if isNilOrWhitespaceString(line) then return false end
-    local estimatedIsoDate = LogFileList[fileName].lastIsoDate or dateISO()
-    if not checkLogFileLineRecencyAndUpdateFileElementLastDate(fileName, estimatedIsoDate) then
+    local estimatedIsoDate = UploadingLogFile.lastIsoDate or dateISO()
+    if not checkLineRecencyThenUpdateLastDateOfUploadingLogFile(estimatedIsoDate) then
       return false
     end
 
@@ -897,7 +871,7 @@ local function uploadRecentLogFileLine(fileName, line)
   else
     --NOTE: the log line succeeded to decompose, so first update the log file element last
     -- date and then check if the line contains only whitespaces
-    if not checkLogFileLineRecencyAndUpdateFileElementLastDate(fileName, decomposedMsg.sendingIsoDate) then
+    if not checkLineRecencyThenUpdateLastDateOfUploadingLogFile(decomposedMsg.sendingIsoDate) then
       return false
     end
     if isNilOrWhitespaceString(decomposedMsg.messageBody) then return false end
@@ -919,10 +893,9 @@ local function uploadRecentLogFileLine(fileName, line)
   return true
 end
 
-local function uploadChunkOfLogFileLines(fileName, maxUploadLogLines)
+local function uploadChunkOfLogFileLines(maxUploadLogLines)
+  local fileName = UploadingLogFile.fileName
   assert(fileName)
-  local fileElem = LogFileList[fileName];
-  assert(fileElem)
 
   local uploadedLineCount = 0
   local uploadedSize = 0
@@ -935,9 +908,9 @@ local function uploadChunkOfLogFileLines(fileName, maxUploadLogLines)
   end
   assert(fileHandle)
 
-  _, err = fileHandle:seek("set", fileElem.readOffset)
+  _, err = fileHandle:seek("set", UploadingLogFile.readOffset)
   if err then
-    --TODO add: logDev("Can't seek in file " .. filename .. " at offset " .. tostring(fileElem.readOffset), err)
+    --TODO add: logDev("Can't seek in file " .. fileName .. " at offset " .. tostring(UploadingLogFile.readOffset), err)
     return uploadedSize
   end
 
@@ -948,7 +921,7 @@ local function uploadChunkOfLogFileLines(fileName, maxUploadLogLines)
     local lineLen = string.len(line)
     processedSize = processedSize + lineLen
 
-    if uploadRecentLogFileLine(fileName, line) then
+    if uploadRecentLogFileLine(line) then
       uploadedLineCount = uploadedLineCount + 1
       uploadedSize = uploadedSize + lineLen
     end
@@ -958,27 +931,17 @@ local function uploadChunkOfLogFileLines(fileName, maxUploadLogLines)
   return processedSize
 end
 
-local function updateLogFileElement(fileName, processedSize)
-  assert(fileName)
-  local fileElem = LogFileList[fileName];
-  assert(fileElem)
-
-  -- update the read position for the next upload round / chunk upload from this log file
-  assert(fileElem.readOffset)
-  fileElem.readOffset = fileElem.readOffset + processedSize
-
-  -- increment the upload counter
-  assert(fileElem.uploadCounter)
-  fileElem.uploadCounter = fileElem.uploadCounter + 1
+local function updateReadOffsetOfUploadingLogFile(processedSize)
+  assert(UploadingLogFile.readOffset)
+  UploadingLogFile.readOffset = UploadingLogFile.readOffset + processedSize
 end
 
-local function deleteFullyProcessedLogFileAndFileElement(fileName)
-  assert(fileName)
-  local fileElem = LogFileList[fileName];
-  assert(fileElem)
-
-  assert(fileElem.readOffset and fileElem.fileSize)
-  if fileElem.readOffset >= fileElem.fileSize then deleteLogFileAndFileElement(fileName) end
+local function deleteFullyProcessedLogFileAndUploadingLogFile()
+  assert(UploadingLogFile.fileName and UploadingLogFile.readOffset and UploadingLogFile.fileSize)
+  if UploadingLogFile.readOffset >= UploadingLogFile.fileSize then
+    deleteLogFile(UploadingLogFile.fileName)
+    UploadingLogFile = {}
+  end
 end
 
 function uploadOfflineLogs()
@@ -986,16 +949,13 @@ function uploadOfflineLogs()
   if not isUploadRound() then return end
 
   local maxUploadLogLines = determineMaxLogLinesForUploadRound()
-  if maxUploadLogLines <= 0 or not isLoggerConnectedOnline() then resetUploadRound(); return end
-
-  updateLogFileList()
-  deleteMissingAndEmptyLogFilesAndFileElements()
-
-  local fileName = determineLogFileToUpload()
-  if fileName ~= nil then
-    local processedSize = uploadChunkOfLogFileLines(fileName, maxUploadLogLines)
-    updateLogFileElement(fileName, processedSize)
-    deleteFullyProcessedLogFileAndFileElement(fileName)
+  if maxUploadLogLines > 0 and isLoggerConnectedOnline() then
+    updateUploadingLogFileWhileDeletingEmptyLogFiles()
+    if UploadingLogFile.fileName then
+      local processedSize = uploadChunkOfLogFileLines(maxUploadLogLines)
+      updateReadOffsetOfUploadingLogFile(processedSize)
+      deleteFullyProcessedLogFileAndUploadingLogFile()
+    end
   end
 
   resetUploadRound()
