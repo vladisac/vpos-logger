@@ -791,8 +791,10 @@ end
 local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
   local fileList = vpos.file.getFileList("VPOS")
 
-  -- update the existing uploading log file if not empty, in which case it'll be deleted
+  -- update the file size and deletion round of the existing uploading log file if not empty,
+  -- in which case it'll be deleted
   if UploadingLogFile.fileName then
+    assert(UploadingLogFile.fileSize)
     for _, fileName in pairs(fileList) do
       if fileName == UploadingLogFile.fileName then
         local filePath = "VPOS:" .. fileName
@@ -801,6 +803,7 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
           deleteLogFile(filePath, true)
           break
         else
+          if logSize > UploadingLogFile.fileSize then UploadingLogFile.deletionRound = 0 end
           UploadingLogFile.fileSize = logSize
           return
         end
@@ -818,7 +821,7 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
       if logSize <= 0 then
         deleteLogFile(filePath, true)
       else
-        UploadingLogFile = {fileName = fileName, fileSize = logSize, readOffset = 0}
+        UploadingLogFile = {fileName = fileName, fileSize = logSize, readOffset = 0, deletionRound = 0}
         return
       end
     end
@@ -968,10 +971,28 @@ local function updateReadOffsetOfUploadingLogFile(processedSize)
 end
 
 local function deleteFullyProcessedLogFileAndUploadingLogFile()
-  assert(UploadingLogFile.fileName and UploadingLogFile.readOffset and UploadingLogFile.fileSize)
+  assert(UploadingLogFile.fileName and UploadingLogFile.readOffset and
+         UploadingLogFile.fileSize and UploadingLogFile.deletionRound)
   if UploadingLogFile.readOffset >= UploadingLogFile.fileSize then
-    deleteLogFile(UploadingLogFile.fileName, true)
-    UploadingLogFile = {}
+    local fileName = UploadingLogFile.fileName
+    local filePath = "VPOS:" .. fileName
+    local ok, err = false, nil
+    for _ = 0, 2 do
+      ok, err = deleteLogFile(filePath, false)
+      if ok then break end
+    end
+    if not ok then
+      local round = UploadingLogFile.deletionRound + 1
+      if round <= 2 then
+        logDev("Can't delete file " .. fileName .. " (3 tries, round " .. round .. ")", err)
+        UploadingLogFile.deletionRound = round
+      else
+        logDev("Can't delete file " .. fileName .. " (3 tries, round " .. round .. "), aborting", err)
+        UploadingLogFile = {}
+      end
+    else
+      UploadingLogFile = {}
+    end
   end
 end
 
