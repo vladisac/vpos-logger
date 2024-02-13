@@ -596,8 +596,11 @@ end
 
 --- Creates or opens a log file having the script's base name and extension ".log".
 ---@param scriptName string The script name
----@param logSizeInKB number? The log size in kilobytes
----@return table # A table containing the log file handler and a function to get the updated log size
+---@param logSizeInKB number? The maximum log size in kilobytes before creating a new file
+---@return table # A table containing:
+--- * `fh` userdata/file*: the log file handler
+--- * `size` function: gets the current log size
+--- * `scriptBaseName` string: the script base name
 function getLogFile(scriptName, logSizeInKB)
   local fileSize = logSizeInKB or 300
   local scriptBaseName = get_base_file_name_from_name(scriptName)
@@ -617,22 +620,43 @@ function getLogFile(scriptName, logSizeInKB)
   if curSize < fileSize then
     fh, errMsg = io.open(filePath, "a+")
     assert(fh, errMsg)
+    if not fh then logDev("Can't open file " .. fileName .. " in A+ mode", errMsg) end
   end
    -- backup the log file
-  if not fh or curSize >= fileSize then
+  if not fh then -- an `or curSize >= fileSize` condition is superfluos
+    -- rename the log file
     local backupFileName = fileName:sub(1, -5) .. ".1.log"
     local backupFilePath = "VPOS:" .. backupFileName
-    local ok, err = pcall(file_rename, filePath, backupFilePath, true)
-    assert(not fh or ok, err) --TODO add: logDev()
-    if not err then
-      -- update the uploading log file name
-      if UploadingLogFile.fileName == fileName then
-        UploadingLogFile.fileName = backupFileName
+    local ok, frOk, frErr = pcall(file_rename, filePath, backupFilePath, true)
+    if not ok then -- the `file_rename()` call failed
+      if curSize >= fileSize then -- `frOk` is pcall's error message here
+        logDev("Can't rename file " .. fileName .. " to " .. backupFilePath, frOk)
       end
-      vpos.file.delete(filePath)
+    else -- the `file_rename()` call succeeded
+      if not frOk then -- the log file wasn't renamed
+        if curSize >= fileSize then
+          logDev("Can't rename file " .. fileName .. " to " .. backupFilePath, frErr)
+        end
+        -- delete the log file and reset the uploading log file
+        if (deleteLogFile(filePath, true)) and UploadingLogFile.fileName == fileName then
+          UploadingLogFile = {}
+        end
+      else -- the log file was successfully renamed
+        if UploadingLogFile.fileName == fileName then -- update file name of uploading log file
+          UploadingLogFile.fileName = backupFileName
+        elseif UploadingLogFile.fileName == backupFileName then -- reset the uploading log file
+          UploadingLogFile = {}
+        end
+      end
     end
+
+    -- write a new log file
     fh, errMsg = io.open(filePath, "w")
-    assert(fh, errMsg)
+    if not fh then
+      logDev("Can't open file " .. fileName .. " in W mode", errMsg)
+    elseif UploadingLogFile.fileName == fileName then -- reset the uploading log file
+      UploadingLogFile = {}
+    end
   end
 
   return {fh = fh, size = logSize, scriptBaseName = scriptBaseName}
