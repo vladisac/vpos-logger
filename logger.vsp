@@ -558,14 +558,19 @@ local function file_exists(fn, host)
   return false
 end
 
----
--- Function that moves/renames a file
--- @tparam string fn1 source filename
--- @tparam string fn2 destination filename
--- @tparam boolean overwrite flag to overwrite existing destination file
-function file_rename(fn1, fn2, overwrite)
-  if not file_exists(fn1) then return false, string.format("Source file %s is missing!", fn1 or "") end
-  if file_exists(fn2) and not overwrite then return false, string.format("Destination file %s already exists!", fn2) end
+--- Moves/Renames a file.
+---@param fn1 string The source file name/path
+---@param fn2 string The destination file name/path
+---@param overwrite boolean Flag to overwrite an existing destination file
+---@return boolean # `true` if moving/renaming succeeded, otherwise `false`
+---@return string|number? # `nil` on success, otherwise an error message or number
+local function file_rename(fn1, fn2, overwrite)
+  if not file_exists(fn1) then
+    return false, string.format("Source file %s is missing!", fn1 or "")
+  end
+  if file_exists(fn2) and not overwrite then
+    return false, string.format("Destination file %s already exists!", fn2)
+  end
 
   local ok, err = vpos.renameFile(fn1, fn2)
   -- if the error is DestinationFileExists and we have to overwrite
