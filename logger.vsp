@@ -929,7 +929,7 @@ local function uploadRecentLogFileLine(line)
 
     ListPushLeft({
       datetime     = estimatedIsoDate,
-      scriptName   = assert(getBaseFileNameWithoutLogBackupSuffixFromName(fileName)) .. ".log",
+      scriptName   = getBaseFileNameWithoutLogBackupSuffixFromName(fileName) .. ".log",
       url          = URL_PAPERTRAIL,
       logType      = "online",
       logSize      = 300,
@@ -947,7 +947,7 @@ local function uploadRecentLogFileLine(line)
 
     --TODO add!?: the real script name needs to be known, which may have the *.vsc extension
     local scriptName = decomposedMsg.scriptName or
-                       (assert(getBaseFileNameWithoutLogBackupSuffixFromName(fileName)) .. ".log")
+                       (getBaseFileNameWithoutLogBackupSuffixFromName(fileName) .. ".log")
     ListPushLeft({
       datetime     = decomposedMsg.sendingIsoDate,
       scriptName   = scriptName,
