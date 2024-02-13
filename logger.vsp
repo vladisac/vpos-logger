@@ -722,16 +722,17 @@ function formatMessage(message, fallback)
   local outStr = ""
 
   if message.logType == "online" and not fallback then
-    local scriptVersion = tostring(vpos.tables.Table(806):getData(message.scriptName, 15) or 0)
+    local scriptVersion = vpos.tables.Table(806):getData(message.scriptName, 15)
+    scriptVersion = tostring((scriptVersion ~= nil and scriptVersion ~= "" and scriptVersion) or 0)
     local scriptData = string.format("%s_v:%s", message.scriptName, scriptVersion)
     local trace = (message.messageLevel == logLevel.Trace and "[trace] ") or ""
 
     outStr = "<" .. message.priority .. ">1 " .. message.datetime .. " " .. COMP_NAME .. POS_NAME ..
              " " .. scriptData .. " - - - " .. trace ..
-             message.qFirst .. ":" .. message.qLast .. " " .. message.message .. "\n"
+             math.abs(message.qFirst) .. ":" .. math.abs(message.qLast) .. " " .. message.message .. "\n"
   else
     outStr = message.datetime .. " [" .. message.messageLevel .. "] >> " ..
-             message.qFirst .. ":" .. message.qLast .. " " .. message.message .. "\n"
+             math.abs(message.qFirst) .. ":" .. math.abs(message.qLast) .. " " .. message.message .. "\n"
   end
 
   return outStr
