@@ -63,7 +63,7 @@ AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = true}
 function file_exists(fn, host)
   if not fn then return false end
 
-  local i, j = string.find(fn, ":")
+  local i, j = string.find(fn, ":", 1, true)
   local fileHost
   if i then
     fileHost = fn:sub(1, j-1)
