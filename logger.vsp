@@ -526,12 +526,17 @@ local function getBaseFileNameWithoutLogBackupSuffixFromName(fileName)
   return removeLogBackupSuffixFromBaseFileName(baseFileName)
 end
 
+--- Constants defining which file hosts are allowed.
+--NOTE: defining this here, because it's exclusively used in the next fun. 
+AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = true}
+
 --- Checks for the existance of the file.
--- @tparam string fn File name/path to be checked
--- @treturn boolean `true` if the file exists, otherwise `false`
-function file_exists(fn, host)
+---@param fn string The file name/path to be checked
+---@param host string? The file host; if `nil` and a host can't be extracted from `fn`, "VPOS" is used
+---@return boolean `true` if the file exists, otherwise `false` <br/>
+---@see AllowedFileHosts
+local function file_exists(fn, host)
   if not fn then return false end
-  allowedHosts = {["VPOS"] = 1, ["FILE"] = 1, ["MEDIAFILE"] = 1}
 
   local i, j = string.find(fn, ":")
   local fileHost
@@ -542,10 +547,10 @@ function file_exists(fn, host)
   end
 
   host = host or fileHost or "VPOS"
-  if not allowedHosts[host] then return false end
+  if not AllowedFileHosts[host] then return false end
 
   local scripts = vpos.file.getFileList(host)
-  for _,s in pairs(scripts) do
+  for _, s in pairs(scripts) do
     if fn == s then
       return true
     end
