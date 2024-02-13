@@ -90,7 +90,7 @@ assert = function(...) end
 
 --- The logging list/queue containing all current messages to be logged.
 logList = {}
---- Table with necessary informations about the current physical log file, like the file
+--- Table with necessary informations about the current offline log file, like the file
 --- handle and a file size function.
 LogFile = nil
 
@@ -225,6 +225,32 @@ local function isNilOrWhitespaceString(str)
   return (str:find("^%s+$")) ~= nil
 end
 
+local function mapMessageLevelToPriority(messageLevel)
+  if not messageLevel then                 assert(false, "Nil message level");  return 14
+  elseif messageLevel == logLevel.Trace or messageLevel == logLevel.Debug then  return 15
+  elseif messageLevel == logLevel.Info then                                     return 14
+  elseif messageLevel == logLevel.Dev then                                      return 13
+  elseif messageLevel == logLevel.Warn then                                     return 12
+  elseif messageLevel == logLevel.Error then                                    return 11
+  else                            assert(false, "Unrecognized message level");  return 14 end
+end
+
+--- Logs a developer message with the format "`devMsg`: `errMsg`".
+---@param devMsg string The developer message; should always be given by the developer
+---@param errMsg any The error message or number; might be `nil` only exceptionally
+local function logDev(devMsg, errMsg)
+  ListPushLeft({
+    datetime     = dateISO(),
+    scriptName   = "logger.vsp",
+    url          = URL_PAPERTRAIL,
+    logType      = "online",
+    logSize      = 300,
+    priority     = mapMessageLevelToPriority(logLevel.Dev),
+    messageLevel = logLevel.Dev,
+    message      = (devMsg or "") .. ": " .. (errMsg or ""),
+  })
+end
+
 --********** END Helper functions *****************************
 
 
@@ -314,15 +340,16 @@ function dumpQueue(q)
   return count
 end
 
---- Gets the initial queue.
--- Gets the queue saved in the script metadata if present, otherwise an empty and
--- initialized queue.
--- @treturn table The inital queue
--- @see readMD
--- @see isQueueEmpty
+--- Gets the queue saved in the script metadata if present, otherwise an empty
+--- and initialized queue.
+---@return table initMetaData The inital queue <br/>
+---@see readMD
+---@see isQueueEmpty
 function getInitialQueue()
   local ok, initMetaData = pcall(readMD)
-  assert(ok, initMetaData)
+  if not ok then -- `initMetaData` is pcall's error message here
+    logDev("Can't read metadata", initMetaData)
+  end
   if ok and initMetaData and not isQueueEmpty(initMetaData) then
     return initMetaData
   else
@@ -391,7 +418,7 @@ function sendFromQueue(q)
     local ok, err = pcall(sendMessage, message)
     assert(ok, err)
     if ok then
-      local ok, err = pcall(ListPopRight, q)
+      ok, err = pcall(ListPopRight, q)
       assert(ok, err)
       if ok then
         writeMD(q)
@@ -545,10 +572,16 @@ function file_rename(fn1, fn2, overwrite)
   return ok, err
 end
 
-local function deleteLogFile(filePath)
+--- Delete the given log file.
+---@param filePath string The log file path
+---@param logErrors boolean Flag for logging any encountered error
+---@return boolean ok `true` if the file deletion succeeded, otherwise `false`
+---@return number errNo A `vpos.file.Error` number
+local function deleteLogFile(filePath, logErrors)
   assert(filePath)
   local ok, errNo = vpos.file.delete(filePath)
-  assert(ok) --TODO add: logDev("Couldn't delete file " .. fileName .. ": " .. tostring(errNo))
+  if logErrors and not ok then logDev("Can't delete file " .. filePath, errNo) end
+  return ok, errNo
 end
 
 --- Creates or opens a log file having the script's base name and extension ".log".
@@ -599,16 +632,6 @@ end
 
 
 --********** Message functions *********************************
-
-local function mapMessageLevelToPriority(messageLevel)
-  if not messageLevel then                 assert(false, "Nil message level");  return 14
-  elseif messageLevel == logLevel.Trace or messageLevel == logLevel.Debug then  return 15
-  elseif messageLevel == logLevel.Info then                                     return 14
-  elseif messageLevel == logLevel.Dev then                                      return 13
-  elseif messageLevel == logLevel.Warn then                                     return 12
-  elseif messageLevel == logLevel.Error then                                    return 11
-  else                            assert(false, "Unrecognized message level");  return 14 end
-end
 
 --- Decomposes/Unformats an offline message string/line into its parts, owning to the
 --- logger script.<br/>
@@ -775,7 +798,7 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
         local filePath = "VPOS:" .. fileName
         local logSize = vpos.script.Script{scriptURL = filePath}:getSize()
         if logSize <= 0 then
-          deleteLogFile(filePath)
+          deleteLogFile(filePath, true)
           break
         else
           UploadingLogFile.fileSize = logSize
@@ -793,7 +816,7 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
       local filePath = "VPOS:" .. fileName
       local logSize = vpos.script.Script{scriptURL = filePath}:getSize()
       if logSize <= 0 then
-        deleteLogFile(filePath)
+        deleteLogFile(filePath, true)
       else
         UploadingLogFile = {fileName = fileName, fileSize = logSize, readOffset = 0}
         return
@@ -833,15 +856,17 @@ local function isRecentLogFileLine(decomposedDate)
   return date:getUnixTime() >= refUnixTime
 end
 
---- Checks if a log file line / message string is recent enough for uploading, by decomposing
---- the given ISO date and if ok, determining the recency and updating the last date for the
---- log file element.
+--- Checks if a log file line / message string is recent enough for uploading, by
+--- decomposing the given ISO date and if ok, determining the recency and updating the
+--- last date for the uploading log file.
 ---@param isoDate any The sending ISO date of a log file line / message string
 ---@return boolean `true` if the log file line is recent enough for uploading, otherwise `false`
 local function checkLineRecencyThenUpdateLastDateOfUploadingLogFile(isoDate)
   local ok, decomposedDate = pcall(decomposeIsoDate, isoDate)
-  if not ok then -- upon errors consider the log line as being recent
-    assert(false, decomposedDate) ---TODO change: logDev()
+  if not ok then
+    -- `decomposedDate` is pcall's error message here
+    logDev("Can't decompose " .. isoDate .. " as ISO date", decomposedDate)
+    -- upon errors consider the log line as being recent
     return true
   end
 
@@ -875,8 +900,8 @@ local function uploadRecentLogFileLine(line)
       message      = line,
     })
   else
-    --NOTE: the log line succeeded to decompose, so first update the log file element last
-    -- date and then check if the line contains only whitespaces
+    --NOTE: the log line succeeded to decompose, so first update the last date of the
+    -- uploading log file and then check if the line contains only whitespaces
     if not checkLineRecencyThenUpdateLastDateOfUploadingLogFile(decomposedMsg.sendingIsoDate) then
       return false
     end
@@ -907,16 +932,16 @@ local function uploadChunkOfLogFileLines(maxUploadLogLines)
   local uploadedSize = 0
   local processedSize = 0
 
-  local fileHandle, err = io.open("VPOS:" .. fileName, "r") -- open log file
+  local fileHandle, err = io.open("VPOS:" .. fileName, "r")
   if not fileHandle then
-    --TODO add: logDev("Can't open file " .. filename, err)
+    logDev("Can't open file " .. fileName .. " in R mode", err)
     return processedSize
   end
   assert(fileHandle)
 
   _, err = fileHandle:seek("set", UploadingLogFile.readOffset)
   if err then
-    --TODO add: logDev("Can't seek in file " .. fileName .. " at offset " .. tostring(UploadingLogFile.readOffset), err)
+    logDev("Can't seek in file " .. fileName .. " @ " .. UploadingLogFile.readOffset, err)
     return processedSize
   end
 
@@ -945,7 +970,7 @@ end
 local function deleteFullyProcessedLogFileAndUploadingLogFile()
   assert(UploadingLogFile.fileName and UploadingLogFile.readOffset and UploadingLogFile.fileSize)
   if UploadingLogFile.readOffset >= UploadingLogFile.fileSize then
-    deleteLogFile(UploadingLogFile.fileName)
+    deleteLogFile(UploadingLogFile.fileName, true)
     UploadingLogFile = {}
   end
 end
@@ -977,9 +1002,9 @@ end
 -- the logs to papertrail.
 function onLogTimer()
   local ok, err = pcall(uploadOfflineLogs, logList)
-  assert(ok, err)
+  if not ok then logDev("Error while uploading offline logs", err) end
   ok, err = pcall(handleQueue, logList)
-  assert(ok, err)
+  if not ok then logDev("Error while handling log queue", err) end
 end
 
 --********** END Timer functions *******************************
@@ -1001,7 +1026,9 @@ local function initLogList()
   assert(ok, logList)
   if not ok then
     ok, logList = pcall(getInitialQueue)
-    assert(ok, logList)
+    if not ok then -- `logList` is pcall's error message here
+      logDev("Can't get initial log queue", logList)
+    end
     writeMD()
   end
 end
