@@ -19,12 +19,12 @@ logLevel = {
   Dev   = "dev"
 }
 
---- URL where logs are shown on papertrail
+--- URL where logs are shown on papertrail.
 URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
 
---- Company name
+--- Company name.
 COMP_NAME = ""
---- POS name
+--- POS name.
 POS_NAME = ""
 
 --- Interval in milliseconds, at which the script timer fires events for logging.
@@ -65,14 +65,14 @@ LOG_CHUNK_SIZE_TO_UPLOAD = 2^13 -- 8 KB
 --- The max. age of offline log lines, which will be uploaded.
 UPLOAD_LOG_LINE_AGE_IN_DAYS = 30
 
---- ISO 8601 date constants
+--- ISO 8601 date constants.
 IsoDate = {
   DATE_SEP      = "-", --- separator between date parts
   TIME_MARK     = "T", --- time mark/sign between the date and time sections
   TIME_SEP      = ":", --- separator between the time parts and respectively time zone parts
   TZ_UTC_MARK   = "Z", --- time zone UTC mark/sign
-  TZ_PLUS_MARK  = "+", --- time zone minus mark/sign
-  TZ_MINUS_MARK = "-", --- time zone UTC mark/sign
+  TZ_PLUS_MARK  = "+", --- time zone plus mark/sign
+  TZ_MINUS_MARK = "-", --- time zone minus mark/sign
 }
 IsoDate.BYTE_DATE_SEP      = IsoDate.DATE_SEP:byte(1)
 IsoDate.BYTE_TIME_MARK     = IsoDate.TIME_MARK:byte(1)
@@ -1011,18 +1011,18 @@ local function deleteFullyProcessedLogFileAndUploadingLogFile()
   if UploadingLogFile.readOffset >= UploadingLogFile.fileSize then
     local fileName = UploadingLogFile.fileName
     local filePath = "VPOS:" .. fileName
-    local ok, err = false, nil
+    local ok, errNo = false, nil
     for _ = 0, 2 do
-      ok, err = deleteLogFile(filePath, false)
+      ok, errNo = deleteLogFile(filePath, false)
       if ok then break end
     end
     if not ok then
       local round = UploadingLogFile.deletionRound + 1
       if round <= 2 then
-        logDev("Can't delete file " .. fileName .. " (3 tries, round " .. round .. ")", err)
+        logDev("Can't delete file " .. fileName .. " (3 tries, round " .. round .. ")", errNo)
         UploadingLogFile.deletionRound = round
       else
-        logDev("Can't delete file " .. fileName .. " (3 tries, round " .. round .. "), aborting", err)
+        logDev("Can't delete file " .. fileName .. " (3 tries, round " .. round .. "), aborting", errNo)
         UploadingLogFile = {}
       end
     else
