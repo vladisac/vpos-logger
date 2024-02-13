@@ -53,7 +53,7 @@ local function dateISO(date)
 end
 
 --- Constants defining which file hosts are allowed.
-AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = true}
+AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = false}
 
 --- Checks for the existance of the file.
 ---@param fn string The file name/path to be checked

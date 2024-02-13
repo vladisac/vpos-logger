@@ -528,7 +528,7 @@ end
 
 --- Constants defining which file hosts are allowed.
 --NOTE: defining this here, because it's exclusively used in the next fun. 
-AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = true}
+AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = false}
 
 --- Checks for the existance of the file.
 ---@param fn string The file name/path to be checked
