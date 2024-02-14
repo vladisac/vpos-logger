@@ -62,17 +62,17 @@ MAX_LOG_LINES_TO_UPLOAD = 40
 --- The chunk size to be uploaded from an offline log file, in an uploaded round. More
 --- than this value might be read and processed.<br/>
 LOG_CHUNK_SIZE_TO_UPLOAD = 2^13 -- 8 KB
---- The max. age of offline log lines, which will be uploaded.
+--- The maximum age of offline log lines, which will be uploaded.
 UPLOAD_LOG_LINE_AGE_IN_DAYS = 30
 
 --- ISO 8601 date constants.
 IsoDate = {
-  DATE_SEP      = "-", --- separator between date parts
-  TIME_MARK     = "T", --- time mark/sign between the date and time sections
-  TIME_SEP      = ":", --- separator between the time parts and respectively time zone parts
-  TZ_UTC_MARK   = "Z", --- time zone UTC mark/sign
-  TZ_PLUS_MARK  = "+", --- time zone plus mark/sign
-  TZ_MINUS_MARK = "-", --- time zone minus mark/sign
+  DATE_SEP      = "-", --- Separator between date parts.
+  TIME_MARK     = "T", --- Time mark/sign between the date and time sections.
+  TIME_SEP      = ":", --- Separator between the time parts and respectively time zone parts.
+  TZ_UTC_MARK   = "Z", --- Time zone UTC mark/sign.
+  TZ_PLUS_MARK  = "+", --- Time zone plus mark/sign.
+  TZ_MINUS_MARK = "-", --- Time zone minus mark/sign.
 }
 IsoDate.BYTE_DATE_SEP      = IsoDate.DATE_SEP:byte(1)
 IsoDate.BYTE_TIME_MARK     = IsoDate.TIME_MARK:byte(1)
@@ -109,13 +109,13 @@ UploadStopWatch = vpos.datetime.StopWatch()
 
 --********** Helper functions *********************************
 
---- Formats the given or current date according to the ISO 8601 format
+--- Formats the given or current date according to the ISO 8601 long format
 --- `yyyy-mm-ddThh:mm:ss±hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
 --- (only the first 19 out of the 25 characters).<br/>
 --- Example of returned date: `2016-11-09T04:25:28` (the full date could be
 --- `2016-11-09T04:25:28+01:00`).
 ---@param date? vpos.datetime.DateTime? Date to be formatted; if `nil`, the current date is used
----@return string # Date formatted as per ISO 8601 format.
+---@return string # Date formatted as per ISO 8601 long format.
 local function dateISO(date)
   local date = date or vpos.datetime.DateTime() ---@diagnostic disable-line: redefined-local
   local day, month, year = date:getDate()
@@ -127,11 +127,12 @@ local function dateISO(date)
 --                       tostring(year), month, day, hour, minute, second)
 end
 
---- Decomposes the given date in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm` (length 25).<br/>
+--- Decomposes the given date in ISO 8601 long format `yyyy-mm-ddThh:mm:ss±hh:mm` (length
+--- 25).<br/>
 --- NOTE: The minimum accepted ISO date is `yyyy-mm-ddThh:mm:ss` (length 19); also accepted
 --- is `yyyy-mm-ddThh:mm:ssZ` (UTC length 20) and `yyyy-mm-ddThh:mm:ss±hh` (length 22).<br/>
 ---Raises an error if the string is not an ISO 8601 date or a date part can't be converted.
----@param isoDate string The date in ISO 8601 format.
+---@param isoDate string The date in ISO 8601 long format
 ---@return table # A table with all of the ISO date parts:
 ---   * `year`, `month`, `day` integer
 ---   * `hours`, `minute`, `second` integer
@@ -198,6 +199,20 @@ local function decomposeIsoDate(isoDate)
   }
 end
 
+--- Composes the given decomposed date or the current date according to the ISO 8601
+--- short format `yyyymmddThhmmss` (length 15). If the given decomposed date is `nil`,
+--- then `IsoDate.UNKNOWN_DATETIME` string is returned.<br/>
+--- Example of returned date: `20161109T042528`.
+---@param decomposedDate table? The decomposed ISO date
+---@return string # Date formatted as per ISO 8601 short format, or `IsoDate.UNKNOWN_DATETIME` <br/>
+---@see decomposeIsoDate 
+local function composeShortIsoDate(decomposedDate)
+  if not decomposedDate then return IsoDate.UNKNOWN_DATETIME end
+  return string.format("%04d%02d%02dT%02d%02d%02d",
+                       decomposedDate.year, decomposedDate.month, decomposedDate.day,
+                       decomposedDate.hour, decomposedDate.minute, decomposedDate.second)
+end
+
 --- Clones the object in a custom way.
 --- If the object is a table and for all its table fields recursively, it does a deep
 --- clone. For all non-table fields recursively, or if the object is not a table, it
@@ -218,11 +233,24 @@ local function cloneTablesDeepOthersShallow(obj)
 end
 
 --- Determines if a string is nil or empty, or contains only whitespaces.
----@param str any The string
----@return boolean `true` if the string is nil or empty or only whitespaces, otherwise `false`
+---@param str string The string
+---@return boolean # `true` if the string is nil or empty or only whitespaces, otherwise `false`
 local function isNilOrWhitespaceString(str)
   if not str or str:len() == 0 then return true end
   return (str:find("^%s+$")) ~= nil
+end
+
+--- If the given string ends with a newline or carrage return, trims it.<br/>
+--- Raises an error if the given string is `nil`. 
+---@param str string The string
+---@return string str The trimmed string
+local function trimStringEndNewline(str)
+  if not str then error("Nil string") end
+  if (str:find("[\n\r]$")) then
+    return str:sub(1, -2)
+  else
+    return str
+  end
 end
 
 local function mapMessageLevelToPriority(messageLevel)
@@ -921,13 +949,13 @@ local function checkLineRecencyThenUpdateLastDateOfUploadingLogFile(isoDate)
   return isRecentLogFileLine(decomposedDate)
 end
 
-local function UpdateLastScriptNameOfUploadingLogFile(scriptName)
+local function updateLastScriptNameOfUploadingLogFile(scriptName)
   if not isNilOrWhitespaceString(scriptName) then
     UploadingLogFile.lastScriptName = scriptName
   end
 end
 
-local function uploadRecentLogFileLine(line)
+local function uploadLogFileLine(line)
   assert(line and UploadingLogFile.lastScriptName)
 
   local ok, decomposedMsg = pcall(decomposeUploadingLogFileLine, line)
@@ -1003,7 +1031,7 @@ local function uploadChunkOfLogFileLines(maxUploadLogLines)
     local lineLen = string.len(line)
     processedSize = processedSize + lineLen
 
-    if uploadRecentLogFileLine(line) then
+    if uploadLogFileLine(line) then
       uploadedLineCount = uploadedLineCount + 1
       uploadedSize = uploadedSize + lineLen
     end
