@@ -856,7 +856,14 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
       if logSize <= 0 then
         deleteLogFile(filePath, true)
       else
-        UploadingLogFile = {fileName = fileName, fileSize = logSize, readOffset = 0, deletionRound = 0}
+        UploadingLogFile = {
+          fileName       = fileName,
+          fileSize       = logSize,
+          readOffset     = 0,
+          deletionRound  = 0,
+          lastScriptName = getBaseFileNameWithoutLogBackupSuffixFromName(fileName) .. ".log",
+          lastIsoDate    = dateISO(),
+        }
         return
       end
     end
@@ -908,28 +915,32 @@ local function checkLineRecencyThenUpdateLastDateOfUploadingLogFile(isoDate)
     return true
   end
 
-  -- update the last ISO date of the current uploading log file
+  -- update last ISO date of the current uploading log file
   UploadingLogFile.lastIsoDate = isoDate
 
   return isRecentLogFileLine(decomposedDate)
 end
 
+local function UpdateLastScriptNameOfUploadingLogFile(scriptName)
+  if not isNilOrWhitespaceString(scriptName) then
+    UploadingLogFile.lastScriptName = scriptName
+  end
+end
+
 local function uploadRecentLogFileLine(line)
-  local fileName = UploadingLogFile.fileName
-  assert(fileName and line)
+  assert(line and UploadingLogFile.lastScriptName)
 
   local ok, decomposedMsg = pcall(decomposeUploadingLogFileLine, line)
-  if not ok then -- there can be multi-line messages, unknown formatted messages etc.
+  if not ok then -- there can be multi-line messages, messages with unknown format etc.
     --NOTE: the log line failed to decompose, so first check if it contains only whitespaces
     if isNilOrWhitespaceString(line) then return false end
-    local estimatedIsoDate = UploadingLogFile.lastIsoDate or dateISO()
-    if not checkLineRecencyThenUpdateLastDateOfUploadingLogFile(estimatedIsoDate) then
+    if not checkLineRecencyThenUpdateLastDateOfUploadingLogFile(UploadingLogFile.lastIsoDate) then
       return false
     end
 
     ListPushLeft({
-      datetime     = estimatedIsoDate,
-      scriptName   = getBaseFileNameWithoutLogBackupSuffixFromName(fileName) .. ".log",
+      datetime     = UploadingLogFile.lastIsoDate,
+      scriptName   = UploadingLogFile.lastScriptName,
       url          = URL_PAPERTRAIL,
       logType      = "online",
       logSize      = 300,
@@ -938,6 +949,8 @@ local function uploadRecentLogFileLine(line)
       message      = line,
     })
   else
+    UpdateLastScriptNameOfUploadingLogFile(decomposedMsg.scriptName)
+
     --NOTE: the log line succeeded to decompose, so first update the last date of the
     -- uploading log file and then check if the line contains only whitespaces
     if not checkLineRecencyThenUpdateLastDateOfUploadingLogFile(decomposedMsg.sendingIsoDate) then
@@ -945,12 +958,12 @@ local function uploadRecentLogFileLine(line)
     end
     if isNilOrWhitespaceString(decomposedMsg.messageBody) then return false end
 
-    --TODO add!?: the real script name needs to be known, which may have the *.vsc extension
-    local scriptName = decomposedMsg.scriptName or
-                       (getBaseFileNameWithoutLogBackupSuffixFromName(fileName) .. ".log")
+    --NOTE: we handle differently the date vs. script name in the 2 code branches, because
+    -- the first is present in offline log lines of both the logger and other log files,
+    -- while the latter is present only in the logger's own log lines
     ListPushLeft({
       datetime     = decomposedMsg.sendingIsoDate,
-      scriptName   = scriptName,
+      scriptName   = UploadingLogFile.lastScriptName,
       url          = URL_PAPERTRAIL,
       logType      = "online",
       logSize      = 300,
