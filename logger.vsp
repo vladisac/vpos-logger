@@ -962,30 +962,33 @@ local function checkLineRecencyThenUpdateLastDateOfUploadingLogFile(isoDate)
   return isRecentLogFileLine(decomposedDate), decomposedDate
 end
 
---- First determines if a log message body ends with a date in `dd.mm.yyyy_hh:mm:ss` format
---- and an upload try number. If not, then it appends them and the corresponding log line
---- can be uploaded. Else (if the message body contains these 2 elements), the log line can
---- be uploaded if the max. upload tries hasn't been reached, in which case the upload try
---- number is updated.<br/>
---- If the given `decomposedDate` is `nil`, then `UNKNOWN_DATETIME` string is appended to
+--- First determines if a log message body starts with a date in `dd.mm.yyyy_hh:mm:ss` format
+--- (denoting the generated at timestamp) and an upload try number. If not, then it prepends
+--- them and the corresponding log line can be uploaded. Else (if the message body contains
+--- these 2 elements), the log line can be uploaded if the max. upload tries hasn't been
+--- reached, in which case the upload try number is updated.<br/>
+--- If the given `decomposedDate` is `nil`, then `UNKNOWN_DATETIME` string is prepended to
 --- a log line not containing the 2 elements.
 ---@param msgBody string The log message body
----@param decomposedDate table? The decomposed ISO date, denoting the line generation timestamp
+---@param decomposedDate table? The decomposed ISO date, denoting the line generated at timestamp
 ---@return boolean # `true` if the log file line can be uploaded, otherwise `false`
 ---@return string line The log line with a short ISO date and an upload try appended or updated <br/>
 ---@see decomposeIsoDate 
-local function checkShortDateAndUploadTryThenAppendOrUpdateThemToLogMessageBody(msgBody, decomposedDate)
+local function checkDateAndUploadTryThenPrependOrUpdateThemInLogMessageBody(msgBody, decomposedDate)
   assert(msgBody)
+  local i, uploadTryChar
 
-  local uploadTryChar = msgBody:match(" |%d%d%.%d%d%.%d%d%d%d_%d%d:%d%d:%d%d|U(%d)$") or
-                        msgBody:match(" |D%?T%?|U(%d)$")
+  _, _, i, uploadTryChar   = msgBody:find("^%d%d%.%d%d%.%d%d%d%d_%d%d:%d%d:%d%d|U()(%d) ")
+  if not uploadTryChar then
+    _, _, i, uploadTryChar = msgBody:find("^D%?T%?|U()(%d) ")
+  end
   if not uploadTryChar then -- 0th upload try
-    msgBody = string.format("%s |%s|U0", msgBody, composeDmyHmsDate(decomposedDate))
+    msgBody = string.format("%s|U0 %s", composeDmyHmsDate(decomposedDate), msgBody)
     return true, msgBody
   else -- we already tried to upload this line at least once
     local uploadTry = tonumber(uploadTryChar) + 1
     if uploadTry < MAX_LOG_LINE_UPLOAD_TRIES then
-      msgBody = msgBody:sub(1, -2) .. tostring(uploadTry)
+      msgBody = string.format("%s|U%d %s", msgBody:sub(1, i - 3), uploadTry, msgBody:sub(i + 2))
       return true, msgBody
     else
       return false, msgBody
@@ -1012,7 +1015,7 @@ local function uploadLogFileLine(line)
     ok, decomposedDate = checkLineRecencyThenUpdateLastDateOfUploadingLogFile(UploadingLogFile.lastIsoDate)
     if not ok then return false end
 
-    ok, msgBody = checkShortDateAndUploadTryThenAppendOrUpdateThemToLogMessageBody(msgBody, decomposedDate)
+    ok, msgBody = checkDateAndUploadTryThenPrependOrUpdateThemInLogMessageBody(msgBody, decomposedDate)
     if not ok then return false end
 
     ListPushLeft({
@@ -1035,7 +1038,7 @@ local function uploadLogFileLine(line)
     if not ok then return false end
     if isNilOrWhitespaceString(msgBody) then return false end
 
-    ok, msgBody = checkShortDateAndUploadTryThenAppendOrUpdateThemToLogMessageBody(msgBody, decomposedDate)
+    ok, msgBody = checkDateAndUploadTryThenPrependOrUpdateThemInLogMessageBody(msgBody, decomposedDate)
     if not ok then return false end
 
     --NOTE: we handle differently the date vs. script name in the 2 code branches, because
