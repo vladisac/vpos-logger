@@ -64,6 +64,11 @@ MAX_LOG_LINES_TO_UPLOAD = 40
 LOG_CHUNK_SIZE_TO_UPLOAD = 2^13 -- 8 KB
 --- The maximum age of offline log lines, which will be uploaded.
 UPLOAD_LOG_LINE_AGE_IN_DAYS = 30
+--- The maximum tries for uploading a log line / message string, practically denoting the max.
+--- count an uploaded log line can fallback to file and be reuploaded. Valid range [3, 10].
+MAX_LOG_LINE_UPLOAD_TRIES = 5
+--- The maximum rounds for trying to delete a fully uploaded log file. A good range [2, 10].
+MAX_UPLOADED_LOG_DELETION_ROUNDS = 3
 
 --- ISO 8601 date constants.
 IsoDate = {
@@ -73,6 +78,9 @@ IsoDate = {
   TZ_UTC_MARK   = "Z", --- Time zone UTC mark/sign.
   TZ_PLUS_MARK  = "+", --- Time zone plus mark/sign.
   TZ_MINUS_MARK = "-", --- Time zone minus mark/sign.
+
+  --ATTENTION: update all explicit usages of this string in the script, when changing this const.!
+  UNKNOWN_DATETIME = "?T?" --- An unknown/unrecognized date-time in ISO long or short format.
 }
 IsoDate.BYTE_DATE_SEP      = IsoDate.DATE_SEP:byte(1)
 IsoDate.BYTE_TIME_MARK     = IsoDate.TIME_MARK:byte(1)
@@ -933,20 +941,53 @@ end
 --- decomposing the given ISO date and if ok, determining the recency and updating the
 --- last date for the uploading log file.
 ---@param isoDate any The sending ISO date of a log file line / message string
----@return boolean `true` if the log file line is recent enough for uploading, otherwise `false`
+---@return boolean # `true` if the log file line is recent enough for uploading, otherwise `false`
+---@return table? decomposedDate The decomposed ISO date if the decomposition succeeded, otherwise `nil` <br/>
+---@see decomposeIsoDate 
 local function checkLineRecencyThenUpdateLastDateOfUploadingLogFile(isoDate)
   local ok, decomposedDate = pcall(decomposeIsoDate, isoDate)
   if not ok then
     -- `decomposedDate` is pcall's error message here
     logDev("Can't decompose " .. isoDate .. " as ISO date", decomposedDate)
     -- upon errors consider the log line as being recent
-    return true
+    return true, nil
   end
 
   -- update last ISO date of the current uploading log file
   UploadingLogFile.lastIsoDate = isoDate
 
-  return isRecentLogFileLine(decomposedDate)
+  return isRecentLogFileLine(decomposedDate), decomposedDate
+end
+
+--- First determines if a log message body ends with a short ISO date and an upload try
+--- number. If not, then it appends them and the corresponding log line can be uploaded.
+--- Else (if the message body contains these 2 elements), the log line can be uploaded if
+--- the max. upload tries hasn't been reached, in which case the upload try number is
+--- updated.<br/>
+--- If the given `decomposedDate` is `nil`, then `IsoDate.UNKNOWN_DATETIME` string is appended
+--- to a log line not containing a short ISO date.
+---@param msgBody string The log message body / line
+---@param decomposedDate table? The decomposed ISO date, denoting the line generation timestamp
+---@return boolean # `true` if the log file line can be uploaded, otherwise `false`
+---@return string line The log line with a short ISO date and an upload try appended or updated <br/>
+---@see decomposeIsoDate 
+local function checkShortDateAndUploadTryThenAppendOrUpdateThemToLogMessageBody(msgBody, decomposedDate)
+  assert(msgBody)
+
+  local uploadTryChar = msgBody:match(" |%d%d%d%d%d%d%d%dT%d%d%d%d%d%d|U(%d)$") or
+                        msgBody:match(" |?T?|U(%d)$")
+  if not uploadTryChar then -- 0th upload try
+    msgBody = string.format("%s |%s|U0", msgBody, composeShortIsoDate(decomposedDate))
+    return true, msgBody
+  else -- we already tried to upload this line at least once
+    local uploadTry = tonumber(uploadTryChar) + 1
+    if uploadTry < MAX_LOG_LINE_UPLOAD_TRIES then
+      msgBody = msgBody:sub(1, -2) .. tostring(uploadTry)
+      return true, msgBody
+    else
+      return false, msgBody
+    end
+  end
 end
 
 local function updateLastScriptNameOfUploadingLogFile(scriptName)
@@ -957,14 +998,19 @@ end
 
 local function uploadLogFileLine(line)
   assert(line and UploadingLogFile.lastScriptName)
+  local msgBody, decomposedDate
 
   local ok, decomposedMsg = pcall(decomposeUploadingLogFileLine, line)
   if not ok then -- there can be multi-line messages, messages with unknown format etc.
+    msgBody = trimStringEndNewline(line)
+
     --NOTE: the log line failed to decompose, so first check if it contains only whitespaces
-    if isNilOrWhitespaceString(line) then return false end
-    if not checkLineRecencyThenUpdateLastDateOfUploadingLogFile(UploadingLogFile.lastIsoDate) then
-      return false
-    end
+    if isNilOrWhitespaceString(msgBody) then return false end
+    ok, decomposedDate = checkLineRecencyThenUpdateLastDateOfUploadingLogFile(UploadingLogFile.lastIsoDate)
+    if not ok then return false end
+
+    ok, msgBody = checkShortDateAndUploadTryThenAppendOrUpdateThemToLogMessageBody(msgBody, decomposedDate)
+    if not ok then return false end
 
     ListPushLeft({
       datetime     = UploadingLogFile.lastIsoDate,
@@ -974,17 +1020,20 @@ local function uploadLogFileLine(line)
       logSize      = 300,
       priority     = mapMessageLevelToPriority(logLevel.Info),
       messageLevel = logLevel.Info,
-      message      = line,
+      message      = msgBody,
     })
   else
-    UpdateLastScriptNameOfUploadingLogFile(decomposedMsg.scriptName)
+    msgBody = decomposedMsg.messageBody
+    updateLastScriptNameOfUploadingLogFile(decomposedMsg.scriptName)
 
     --NOTE: the log line succeeded to decompose, so first update the last date of the
     -- uploading log file and then check if the line contains only whitespaces
-    if not checkLineRecencyThenUpdateLastDateOfUploadingLogFile(decomposedMsg.sendingIsoDate) then
-      return false
-    end
-    if isNilOrWhitespaceString(decomposedMsg.messageBody) then return false end
+    ok, decomposedDate = checkLineRecencyThenUpdateLastDateOfUploadingLogFile(decomposedMsg.sendingIsoDate)
+    if not ok then return false end
+    if isNilOrWhitespaceString(msgBody) then return false end
+
+    ok, msgBody = checkShortDateAndUploadTryThenAppendOrUpdateThemToLogMessageBody(msgBody, decomposedDate)
+    if not ok then return false end
 
     --NOTE: we handle differently the date vs. script name in the 2 code branches, because
     -- the first is present in offline log lines of both the logger and other log files,
@@ -997,7 +1046,7 @@ local function uploadLogFileLine(line)
       logSize      = 300,
       priority     = mapMessageLevelToPriority(decomposedMsg.messageLevel),
       messageLevel = decomposedMsg.messageLevel,
-      message      = decomposedMsg.messageBody,
+      message      = msgBody,
     })
   end
   return true
@@ -1059,7 +1108,7 @@ local function deleteFullyProcessedLogFileAndUploadingLogFile()
     end
     if not ok then
       local round = UploadingLogFile.deletionRound + 1
-      if round <= 2 then
+      if round < MAX_UPLOADED_LOG_DELETION_ROUNDS then
         logDev("Can't delete file " .. fileName .. " (3 tries, round " .. round .. ")", errNo)
         UploadingLogFile.deletionRound = round
       else
