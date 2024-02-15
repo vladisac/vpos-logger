@@ -248,14 +248,17 @@ local function isNilOrWhitespaceString(str)
   return (str:find("^%s+$")) ~= nil
 end
 
---- If the given string ends with a newline or carrage return, trims it.<br/>
+--- Trims one newline character combination, LF (Linux) or CR-LF (Windows), from the
+--- end of the given string.<br/>
+--- NOTE: CR (macOS) seems not to be supported by Lua or VPOS!<br/>
 --- Raises an error if the given string is `nil`. 
 ---@param str string The string
 ---@return string str The trimmed string
 local function trimStringEndNewline(str)
   if not str then error("Nil string") end
-  if (str:find("[\n\r]$")) then
-    return str:sub(1, -2)
+  local i, _ = str:find("\r?\n$")
+  if i then
+    return str:sub(1, i - 1)
   else
     return str
   end
@@ -715,7 +718,7 @@ end
 local function decomposeLoggerOfflineMessageString(str)
   assert(str)
 
-  local scriptName, sendingIsoDate, messageBody = str:match("^(%S+)%s+(%S+)%s+(.-)[\n\r]$")
+  local scriptName, sendingIsoDate, messageBody = str:match("^(%S+)%s+(%S+)%s+(.-)\r?\n$")
   if not scriptName then error("Can't decompose logger offline message string") end
 
   return {
@@ -736,7 +739,7 @@ local function decomposeOfflineMessageString(str)
   assert(str)
 
   local sendingIsoDate, messageLevel, qFirstStr, qLastStr, messageBody =
-    str:match("^(%S+) %[(%S+)%] >> ([+-]?%d+):([+-]?%d+) (.-)[\n\r]$")
+    str:match("^(%S+) %[(%S+)%] >> ([+-]?%d+):([+-]?%d+) (.-)\r?\n$")
   if not sendingIsoDate then error("Can't decompose offline message string") end
 
   local qFirst = tonumber(qFirstStr)
@@ -975,7 +978,7 @@ local function checkShortDateAndUploadTryThenAppendOrUpdateThemToLogMessageBody(
   assert(msgBody)
 
   local uploadTryChar = msgBody:match(" |%d%d%d%d%d%d%d%dT%d%d%d%d%d%d|U(%d)$") or
-                        msgBody:match(" |?T?|U(%d)$")
+                        msgBody:match(" |%?T%?|U(%d)$")
   if not uploadTryChar then -- 0th upload try
     msgBody = string.format("%s |%s|U0", msgBody, composeShortIsoDate(decomposedDate))
     return true, msgBody
