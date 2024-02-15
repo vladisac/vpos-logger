@@ -78,9 +78,6 @@ IsoDate = {
   TZ_UTC_MARK   = "Z", --- Time zone UTC mark/sign.
   TZ_PLUS_MARK  = "+", --- Time zone plus mark/sign.
   TZ_MINUS_MARK = "-", --- Time zone minus mark/sign.
-
-  --ATTENTION: update all explicit usages of this string in the script, when changing this const.!
-  UNKNOWN_DATETIME = "?T?" --- An unknown/unrecognized date-time in ISO long or short format.
 }
 IsoDate.BYTE_DATE_SEP      = IsoDate.DATE_SEP:byte(1)
 IsoDate.BYTE_TIME_MARK     = IsoDate.TIME_MARK:byte(1)
@@ -88,6 +85,9 @@ IsoDate.BYTE_TIME_SEP      = IsoDate.TIME_SEP:byte(1)
 IsoDate.BYTE_TZ_UTC_MARK   = IsoDate.TZ_UTC_MARK:byte(1)
 IsoDate.BYTE_TZ_PLUS_MARK  = IsoDate.TZ_PLUS_MARK:byte(1)
 IsoDate.BYTE_TZ_MINUS_MARK = IsoDate.TZ_MINUS_MARK:byte(1)
+--ATTENTION: when changing this constant, update all explicit usages of its string value in the script!
+--- An unknown/unrecognized date-time.
+UNKNOWN_DATETIME = "D?T?"
 
 --********** END Global constants and enums *******************
 
@@ -117,13 +117,13 @@ UploadStopWatch = vpos.datetime.StopWatch()
 
 --********** Helper functions *********************************
 
---- Formats the given or current date according to the ISO 8601 long format
+--- Formats the given or current date according to the ISO 8601 (long) format
 --- `yyyy-mm-ddThh:mm:ss±hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
 --- (only the first 19 out of the 25 characters).<br/>
 --- Example of returned date: `2016-11-09T04:25:28` (the full date could be
 --- `2016-11-09T04:25:28+01:00`).
----@param date? vpos.datetime.DateTime? Date to be formatted; if `nil`, the current date is used
----@return string # Date formatted as per ISO 8601 long format.
+---@param date vpos.datetime.DateTime? Date to be formatted; if `nil`, the current date is used
+---@return string # The formatted given or current date
 local function dateISO(date)
   local date = date or vpos.datetime.DateTime() ---@diagnostic disable-line: redefined-local
   local day, month, year = date:getDate()
@@ -135,12 +135,12 @@ local function dateISO(date)
 --                       tostring(year), month, day, hour, minute, second)
 end
 
---- Decomposes the given date in ISO 8601 long format `yyyy-mm-ddThh:mm:ss±hh:mm` (length
+--- Decomposes the given date in ISO 8601 (long) format `yyyy-mm-ddThh:mm:ss±hh:mm` (length
 --- 25).<br/>
 --- NOTE: The minimum accepted ISO date is `yyyy-mm-ddThh:mm:ss` (length 19); also accepted
 --- is `yyyy-mm-ddThh:mm:ssZ` (UTC length 20) and `yyyy-mm-ddThh:mm:ss±hh` (length 22).<br/>
 ---Raises an error if the string is not an ISO 8601 date or a date part can't be converted.
----@param isoDate string The date in ISO 8601 long format
+---@param isoDate string The date in ISO 8601 format
 ---@return table # A table with all of the ISO date parts:
 ---   * `year`, `month`, `day` integer
 ---   * `hours`, `minute`, `second` integer
@@ -207,17 +207,17 @@ local function decomposeIsoDate(isoDate)
   }
 end
 
---- Composes the given decomposed date or the current date according to the ISO 8601
---- short format `yyyymmddThhmmss` (length 15). If the given decomposed date is `nil`,
---- then `IsoDate.UNKNOWN_DATETIME` string is returned.<br/>
---- Example of returned date: `20161109T042528`.
+--- Composes the given decomposed date to the day-month-year and hour-minute-second
+--- format `dd.mm.yyyy_hh:mm:ss` (length 19). If the given decomposed date is `nil`,
+--- then `UNKNOWN_DATETIME` string is returned.<br/>
+--- Example of returned date: `09.11.2016_04:25:28`.
 ---@param decomposedDate table? The decomposed ISO date
----@return string # Date formatted as per ISO 8601 short format, or `IsoDate.UNKNOWN_DATETIME` <br/>
+---@return string # The formatted date, or `UNKNOWN_DATETIME` <br/>
 ---@see decomposeIsoDate 
-local function composeShortIsoDate(decomposedDate)
-  if not decomposedDate then return IsoDate.UNKNOWN_DATETIME end
-  return string.format("%04d%02d%02dT%02d%02d%02d",
-                       decomposedDate.year, decomposedDate.month, decomposedDate.day,
+local function composeDmyHmsDate(decomposedDate)
+  if not decomposedDate then return UNKNOWN_DATETIME end
+  return string.format("%02d.%02d.%04d_%02d:%02d:%02d",
+                       decomposedDate.day, decomposedDate.month, decomposedDate.year,
                        decomposedDate.hour, decomposedDate.minute, decomposedDate.second)
 end
 
@@ -962,14 +962,14 @@ local function checkLineRecencyThenUpdateLastDateOfUploadingLogFile(isoDate)
   return isRecentLogFileLine(decomposedDate), decomposedDate
 end
 
---- First determines if a log message body ends with a short ISO date and an upload try
---- number. If not, then it appends them and the corresponding log line can be uploaded.
---- Else (if the message body contains these 2 elements), the log line can be uploaded if
---- the max. upload tries hasn't been reached, in which case the upload try number is
---- updated.<br/>
---- If the given `decomposedDate` is `nil`, then `IsoDate.UNKNOWN_DATETIME` string is appended
---- to a log line not containing a short ISO date.
----@param msgBody string The log message body / line
+--- First determines if a log message body ends with a date in `dd.mm.yyyy_hh:mm:ss` format
+--- and an upload try number. If not, then it appends them and the corresponding log line
+--- can be uploaded. Else (if the message body contains these 2 elements), the log line can
+--- be uploaded if the max. upload tries hasn't been reached, in which case the upload try
+--- number is updated.<br/>
+--- If the given `decomposedDate` is `nil`, then `UNKNOWN_DATETIME` string is appended to
+--- a log line not containing the 2 elements.
+---@param msgBody string The log message body
 ---@param decomposedDate table? The decomposed ISO date, denoting the line generation timestamp
 ---@return boolean # `true` if the log file line can be uploaded, otherwise `false`
 ---@return string line The log line with a short ISO date and an upload try appended or updated <br/>
@@ -977,10 +977,10 @@ end
 local function checkShortDateAndUploadTryThenAppendOrUpdateThemToLogMessageBody(msgBody, decomposedDate)
   assert(msgBody)
 
-  local uploadTryChar = msgBody:match(" |%d%d%d%d%d%d%d%dT%d%d%d%d%d%d|U(%d)$") or
-                        msgBody:match(" |%?T%?|U(%d)$")
+  local uploadTryChar = msgBody:match(" |%d%d%.%d%d%.%d%d%d%d_%d%d:%d%d:%d%d|U(%d)$") or
+                        msgBody:match(" |D%?T%?|U(%d)$")
   if not uploadTryChar then -- 0th upload try
-    msgBody = string.format("%s |%s|U0", msgBody, composeShortIsoDate(decomposedDate))
+    msgBody = string.format("%s |%s|U0", msgBody, composeDmyHmsDate(decomposedDate))
     return true, msgBody
   else -- we already tried to upload this line at least once
     local uploadTry = tonumber(uploadTryChar) + 1
