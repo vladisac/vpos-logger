@@ -311,7 +311,7 @@ end
 ---@param key string? The indexing key in the metadata; defaults to "key" if `nil`
 ---@return boolean # `true` on success, otherwise `false`
 function writeMD(q, key)
-  if not q or not next(q) then return end
+  if not q or not next(q) then return false end
   key = key or "key"
   local metaTab = {key = q}
   return vpos.script.currentScript():setMetaData(metaTab)
