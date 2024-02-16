@@ -97,17 +97,17 @@ UNKNOWN_DATETIME = "D?T?"
 assert = function(...) end
 
 --- The logging list/queue containing all current messages to be logged.
-logList = {}
---- Table with necessary informations about the current offline log file, like the file
+LogList = {}
+--- The structured information about the current offline log file, like the file
 --- handle and a file size function.
 LogFile = nil
 
 --- The socket for sending the log lines/messages online.
-socket = nil
+LogSocket = nil
 --- Count the number of logging fallbacks to file.
-offlineCounter = 0
+OfflineCounter = 0
 
---- Table with necessary informations about the current uploading offline log file.
+--- The structured information about the current uploading offline log file.
 UploadingLogFile = {}
 --- Stop watch for uploading offline saved logs.
 UploadStopWatch = vpos.datetime.StopWatch()
@@ -320,8 +320,8 @@ end
 --- Clears the script metadata.
 --- Practically, erases the log queue and saves this empty queue to the metadata.
 function clearMD()
-  eraseQueue(logList)
-  writeMD(logList)
+  eraseQueue(LogList)
+  writeMD(LogList)
 end
 
 --#endregion **********
@@ -401,13 +401,13 @@ end
 ---@param message table The structured information about the log message
 function ListPushLeft(message)
   if not message then return end
-  local first = (logList and logList.first or 0) - 1
+  local first = (LogList and LogList.first or 0) - 1
   message.datetime = message.datetime or dateISO()
   message.priority = message.priority or "22"
-  logList.first = first
-  logList[first] = cloneTablesDeepOthersShallow(message)
+  LogList.first = first
+  LogList[first] = cloneTablesDeepOthersShallow(message)
   -- save the new queue to metadata
-  writeMD(logList)
+  writeMD(LogList)
 end
 
 --- Gets/Peeks the element from the head of the list/queue.
@@ -759,12 +759,12 @@ end
 
 local function createOrRecreateLogSocket(url)
   -- retry to create the socket only after several logs were locally written
-  if (not socket and (offlineCounter == 0 or offlineCounter >= 9)) or offlineCounter >= 9 then
+  if (not LogSocket and (OfflineCounter == 0 or OfflineCounter >= 9)) or OfflineCounter >= 9 then
     local logUrl = url:gsub("http://", "")
     local address, port = logUrl:match("(.-):(%d+)")
     assert(address and port)
-    socket = vpos.communication.Socket(address, port, 3000)
-    offlineCounter = 0
+    LogSocket = vpos.communication.Socket(address, port, 3000)
+    OfflineCounter = 0
   end
 end
 
@@ -783,10 +783,10 @@ function sendMessage(message)
   if message.logType == "online" and message.url then
     createOrRecreateLogSocket(message.url)
 
-    local sent = socket and socket:write(outStr)
+    local sent = LogSocket and LogSocket:write(outStr)
     if not sent then
       fallbackToFile = true
-      offlineCounter = offlineCounter + 1
+      OfflineCounter = OfflineCounter + 1
       ok, outStr = pcall(formatMessage, message, true)
       assert(ok, outStr)
     end
@@ -825,7 +825,7 @@ local function resetUploadRound()
 end
 
 local function determineMaxLogLinesForUploadRound()
-  local logListSize = queueSize(logList)
+  local logListSize = queueSize(LogList)
   if logListSize > MAX_LOG_LIST_SIZE_FOR_UPLOAD then return 0 end
 
   local uploadLogLines = MAX_LOG_LIST_SIZE_AFTER_UPLOAD - logListSize
@@ -838,8 +838,8 @@ end
 
 local function isLoggerConnectedOnline()
   createOrRecreateLogSocket(URL_PAPERTRAIL)
-  if not socket then return false end
-  return socket:isOpen() and socket:isConnected()
+  if not LogSocket then return false end
+  return LogSocket:isOpen() and LogSocket:isConnected()
 end
 
 local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
@@ -1133,7 +1133,7 @@ end
 function onLogTimer()
   local ok, err = pcall(uploadOfflineLogs)
   if not ok then logDev("Error while uploading offline logs", err) end
-  ok, err = pcall(handleQueue, logList)
+  ok, err = pcall(handleQueue, LogList)
   if not ok then logDev("Error while handling log queue", err) end
 end
 
@@ -1152,13 +1152,13 @@ end
 
 local function initLogList()
   local ok
-  ok, logList = pcall(getInitialQueue)
-  assert(ok, logList)
+  ok, LogList = pcall(getInitialQueue)
+  assert(ok, LogList)
   if not ok then
-    ok, logList = pcall(getInitialQueue)
-    if not ok then -- `logList` is pcall's error message here
-      logDev("Can't get initial log queue", logList)
-      logList = {}
+    ok, LogList = pcall(getInitialQueue)
+    if not ok then -- `LogList` is pcall's error message here
+      logDev("Can't get initial log queue", LogList)
+      LogList = {first = 0, last = -1}
     end
   end
 end
