@@ -876,12 +876,13 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
         deleteLogFile(filePath, true)
       else
         UploadingLogFile = {
-          fileName       = fileName,
-          fileSize       = logSize,
-          readOffset     = 0,
-          deletionRound  = 0,
-          lastScriptName = getBaseFileNameWithoutLogBackupSuffixFromName(fileName) .. ".log",
-          lastIsoDate    = dateISO(),
+          fileName         = fileName,
+          fileSize         = logSize,
+          readOffset       = 0,
+          deletionRound    = 0,
+          lastScriptName   = getBaseFileNameWithoutLogBackupSuffixFromName(fileName) .. ".log",
+          lastIsoDate      = dateISO(),
+          lastMessageLevel = logLevel.Info,
         }
         return
       end
@@ -889,7 +890,7 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
   end
 end
 
-function decomposeUploadingLogFileLine(line)
+local function decomposeUploadingLogFileLine(line)
   local fileName = UploadingLogFile.fileName
   assert(UploadingLogFile.fileName)
 
@@ -898,6 +899,23 @@ function decomposeUploadingLogFileLine(line)
   else
     return decomposeOfflineMessageString(line)
   end
+end
+
+local function updateLastScriptNameAndMessageLevelOfUploadingLogFile(decomposedMsg)
+  if not isNilOrWhitespaceString(decomposedMsg.scriptName) then
+    UploadingLogFile.lastScriptName = decomposedMsg.scriptName
+  end
+  if not isNilOrWhitespaceString(decomposedMsg.messageLevel) then
+    UploadingLogFile.lastMessageLevel = decomposedMsg.messageLevel
+  end
+end
+
+local function resetLastScriptNameAndMessageLevelOfUploadingLogFile()
+  local fileName = UploadingLogFile.fileName
+  assert(fileName)
+
+  UploadingLogFile.lastScriptName   = getBaseFileNameWithoutLogBackupSuffixFromName(fileName) .. ".log"
+  UploadingLogFile.lastMessageLevel = logLevel.Info
 end
 
 --- Determines if a log file line / message string is recent enough for uploading.
@@ -976,14 +994,8 @@ local function checkDateAndUploadTryThenPrependOrUpdateThemInLogMessageBody(msgB
   end
 end
 
-local function updateLastScriptNameOfUploadingLogFile(scriptName)
-  if not isNilOrWhitespaceString(scriptName) then
-    UploadingLogFile.lastScriptName = scriptName
-  end
-end
-
 local function uploadLogFileLine(line)
-  assert(line and UploadingLogFile.lastScriptName)
+  assert(line and UploadingLogFile.lastScriptName and UploadingLogFile.lastMessageLevel)
   local msgBody, decomposedDate
 
   local ok, decomposedMsg = pcall(decomposeUploadingLogFileLine, line)
@@ -991,7 +1003,10 @@ local function uploadLogFileLine(line)
     msgBody = trimStringEndNewline(line)
 
     --NOTE: the log line failed to decompose, so first check if it contains only whitespaces
-    if isNilOrWhitespaceString(msgBody) then return false end
+    if isNilOrWhitespaceString(msgBody) then
+      resetLastScriptNameAndMessageLevelOfUploadingLogFile()
+      return false
+    end
     ok, decomposedDate = checkLineRecencyThenUpdateLastDateOfUploadingLogFile(UploadingLogFile.lastIsoDate)
     if not ok then return false end
 
@@ -1004,13 +1019,13 @@ local function uploadLogFileLine(line)
       url          = URL_PAPERTRAIL,
       logType      = "online",
       logSize      = 300,
-      priority     = mapMessageLevelToPriority(logLevel.Info),
-      messageLevel = logLevel.Info,
+      priority     = mapMessageLevelToPriority(UploadingLogFile.lastMessageLevel),
+      messageLevel = UploadingLogFile.lastMessageLevel,
       message      = msgBody,
     })
   else
     msgBody = decomposedMsg.messageBody
-    updateLastScriptNameOfUploadingLogFile(decomposedMsg.scriptName)
+    updateLastScriptNameAndMessageLevelOfUploadingLogFile(decomposedMsg)
 
     --NOTE: the log line succeeded to decompose, so first update the last date of the
     -- uploading log file and then check if the line contains only whitespaces
@@ -1095,10 +1110,10 @@ local function deleteFullyProcessedLogFileAndUploadingLogFile()
     if not ok then
       local round = UploadingLogFile.deletionRound + 1
       if round < MAX_UPLOADED_LOG_DELETION_ROUNDS then
-        logDev("Can't delete file " .. fileName .. " (3 tries, round " .. round .. ")", errNo)
+        logDev(string.format("Can't delete file %s (3 tries, round %d)", fileName, round), errNo)
         UploadingLogFile.deletionRound = round
       else
-        logDev("Can't delete file " .. fileName .. " (3 tries, round " .. round .. "), aborting", errNo)
+        logDev(string.format("Can't delete file %s (3 tries, round %d), aborting", fileName, round), errNo)
         UploadingLogFile = {}
       end
     else
