@@ -397,21 +397,6 @@ function getInitialQueue()
   end
 end
 
----
--- Get the element from the head of the queue.
--- This function is used to completely remove the element
--- or reuse it to enqueue.
--- @tparam table queue
--- @tparam boolean use
--- @treturn table when use is true
-function dropHeadElem(q, use)
-  local last = q.last
-  local unfit = q[last]
-  q[last] = nil
-  q.last = last - 1
-  if use then return unfit end
-end
-
 --- Enqueues a message(/element) to the tail of the log list/queue.
 ---@param message table The structured information about the log message
 function ListPushLeft(message)
@@ -1146,7 +1131,7 @@ end
 
 --- Timer function for periodically logging the real-time and offline logs.
 function onLogTimer()
-  local ok, err = pcall(uploadOfflineLogs, logList)
+  local ok, err = pcall(uploadOfflineLogs)
   if not ok then logDev("Error while uploading offline logs", err) end
   ok, err = pcall(handleQueue, logList)
   if not ok then logDev("Error while handling log queue", err) end
@@ -1173,8 +1158,8 @@ local function initLogList()
     ok, logList = pcall(getInitialQueue)
     if not ok then -- `logList` is pcall's error message here
       logDev("Can't get initial log queue", logList)
+      logList = {}
     end
-    writeMD()
   end
 end
 
