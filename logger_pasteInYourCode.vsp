@@ -6,25 +6,26 @@
 ----------- 1. GLOBAL DEFAULTS: add to top of your code and .ini file --------
 ------------------------------------------------------------------------------
 
+--- The logging level
 local logLevel = {
   Off   = "off",
   Error = "error",
   Warn  = "warn",
   Info  = "info",
   Debug = "debug",
-  Trace = "trace"
+  Trace = "trace",
 }
 
----Minimum log level.
+--- Minimum log level for logging a line/message.
 LOG_LEVEL = logLevel.Info
 
----Size of the log file in bytes.
+--- Maximum log file size in kilobytes before rollover.
 LOG_SIZE = 300
 
----Switch to online or offline/local logs.
+--- Switch to online or offline/local logs.
 LOG_TYPE = "online"
 
----URL where logs are shown on papertrail.
+--- URL where logs are shown on Papertrail.
 URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
 
 -----------------------------------------------------------------------------
@@ -41,7 +42,7 @@ URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
 --- (only the first 19 out of the 25 characters).<br/>
 --- Example of returned date: `2016-11-09T04:25:28` (the full date could be
 --- `2016-11-09T04:25:28+01:00`).
----@param date vpos.datetime.DateTime? Date to be formatted; if `nil`, the current date is used
+---@param date vpos.datetime.DateTime? Date to be formatted; defaults to the current date if `nil`
 ---@return string # The formatted given or current date
 local function dateISO(date)
   local date = date or vpos.datetime.DateTime()
@@ -57,7 +58,7 @@ AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = false}
 
 --- Checks for the existance of the file.
 ---@param fn string The file name/path to be checked
----@param host string? The file host; if `nil` and a host can't be extracted from `fn`, "VPOS" is used
+---@param host string? The file host; defaults to "VPOS" if `nil` and a host can't be extracted from `fn`
 ---@return boolean `true` if the file exists, otherwise `false` <br/>
 ---@see AllowedFileHosts
 function file_exists(fn, host)
@@ -83,6 +84,16 @@ function file_exists(fn, host)
   return false
 end
 
+--- Creates a logger object.
+---@param level string? The minimum log level for logging a line/message; defaults to `logLevel.Info` if `nil`
+---@param logType string? The logging type/mode; defaults to "online" if `nil`
+---@param logSize number? The max. log file size in kilobytes before rollover; defaults to 300 if `nil`
+---@param url string? The Papertrail URL; defaults to `URL_PAPERTRAIL` if `nil`
+---@param scriptName string? The name of the script which uses this logger; defaults to " " if `nil`
+---@param scriptVersion string? The version of the script which uses this logger; defaults to "0" if `nil`
+---@param scriptUpdate string? The last update date of the script which uses this logger; defaults to " " if `nil`
+---@param vposName string? The name of the VPOS which uses this logger; defaults to "" if `nil`
+---@return table self A new logger instance.
 function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptUpdate, vposName)
   -- create a new instance
   local self = {

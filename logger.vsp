@@ -8,7 +8,7 @@
 
 --#region Global constants and enums **********
 
----@enum logLevel
+---@enum logLevel # The logging level
 logLevel = {
   Off   = "off",
   Error = "error",
@@ -16,7 +16,7 @@ logLevel = {
   Info  = "info",
   Debug = "debug",
   Trace = "trace",
-  Dev   = "dev"
+  Dev   = "dev",
 }
 
 --- URL where logs are shown on papertrail.
@@ -65,7 +65,7 @@ LOG_CHUNK_SIZE_TO_UPLOAD = 2^13 -- 8 KB
 --- The maximum age of offline log lines, which will be uploaded.
 UPLOAD_LOG_LINE_AGE_IN_DAYS = 30
 --- The maximum tries for uploading a log line / message string, practically denoting the max.
---- count an uploaded log line can fallback to file and be reuploaded. Valid range [3, 10].
+--- count an uploaded log line can fallback to file and be reuploaded. Valid range [1, 10].
 MAX_LOG_LINE_UPLOAD_TRIES = 5
 --- The maximum rounds for trying to delete a fully uploaded log file. A good range [2, 10].
 MAX_UPLOADED_LOG_DELETION_ROUNDS = 3
@@ -122,7 +122,7 @@ UploadStopWatch = vpos.datetime.StopWatch()
 --- (only the first 19 out of the 25 characters).<br/>
 --- Example of returned date: `2016-11-09T04:25:28` (the full date could be
 --- `2016-11-09T04:25:28+01:00`).
----@param date vpos.datetime.DateTime? Date to be formatted; if `nil`, the current date is used
+---@param date vpos.datetime.DateTime? Date to be formatted; defaults to the current date if `nil`
 ---@return string # The formatted given or current date
 local function dateISO(date)
   local date = date or vpos.datetime.DateTime() ---@diagnostic disable-line: redefined-local
@@ -296,7 +296,7 @@ end
 --#region Script metadata functions **********
 
 --- Reads the queue from the script metadata, indexed by "key" key.
--- @treturn table|nil The metadata queue indexed by "key" if present, otherwise `nil`
+---@return table? # The metadata queue indexed by "key" if present, otherwise `nil`
 function readMD()
   local metaTab = vpos.script.currentScript():getMetaData()
   if not metaTab or not next(metaTab) then
@@ -307,8 +307,9 @@ function readMD()
 end
 
 --- Writes the queue to the script metadata, indexed by the given key.
--- @tparam table q The queue
--- @tparam[opt] string key The key at which the queue is indexed in the metadata
+---@param q table The queue
+---@param key string? The indexing key in the metadata; defaults to "key" if `nil`
+---@return boolean # `true` on success, otherwise `false`
 function writeMD(q, key)
   if not q or not next(q) then return end
   key = key or "key"
@@ -317,7 +318,7 @@ function writeMD(q, key)
 end
 
 --- Clears the script metadata.
--- Practically, erases the log queue and saves this empty queue to the metadata.
+--- Practically, erases the log queue and saves this empty queue to the metadata.
 function clearMD()
   eraseQueue(logList)
   writeMD(logList)
@@ -571,7 +572,7 @@ AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = false}
 
 --- Checks for the existance of the file.
 ---@param fn string The file name/path to be checked
----@param host string? The file host; if `nil` and a host can't be extracted from `fn`, "VPOS" is used
+---@param host string? The file host; defaults to "VPOS" if `nil` and a host can't be extracted from `fn`
 ---@return boolean `true` if the file exists, otherwise `false` <br/>
 ---@see AllowedFileHosts
 local function file_exists(fn, host)
@@ -661,7 +662,7 @@ function getLogFile(scriptName, logSizeInKB)
     assert(fh, errMsg)
     if not fh then logDev("Can't open file " .. fileName .. " in A+ mode", errMsg) end
   end
-   -- backup the log file
+   -- roll over the log file
   if not fh then -- an `or curSize >= fileSize` condition is superfluos
     -- rename the log file
     local backupFileName = fileName:sub(1, -5) .. ".1.log"
@@ -970,9 +971,9 @@ end
 --- If the given `decomposedDate` is `nil`, then `UNKNOWN_DATETIME` string is prepended to
 --- a log line not containing the 2 elements.
 ---@param msgBody string The log message body
----@param decomposedDate table? The decomposed ISO date, denoting the line generated at timestamp
+---@param decomposedDate table? The decomposed ISO date, denoting the log line's generated at timestamp
 ---@return boolean # `true` if the log file line can be uploaded, otherwise `false`
----@return string line The log line with a short ISO date and an upload try appended or updated <br/>
+---@return string msgBody The log message body with the date and upload try number prepended or updated <br/>
 ---@see decomposeIsoDate 
 local function checkDateAndUploadTryThenPrependOrUpdateThemInLogMessageBody(msgBody, decomposedDate)
   assert(msgBody)
@@ -1149,9 +1150,7 @@ end
 
 --#region Timer functions **********
 
---- Function called on timer timeouts.
--- Timer function calling `handleQueue` and `uploadOfflineLogs` for sending
--- the logs to papertrail.
+--- Timer function for periodically logging the real-time and offline logs.
 function onLogTimer()
   local ok, err = pcall(uploadOfflineLogs, logList)
   if not ok then logDev("Error while uploading offline logs", err) end
@@ -1202,8 +1201,7 @@ vpos.script.registerAsInterScript()
 
 initTimers()
 
----
--- @entrypoint ClearMetadata
+---@entrypoint ClearMetadata
 vpos.events.registerEntryPointFunction(99, "clearMD")
 
 --#endregion **********
