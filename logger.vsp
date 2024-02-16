@@ -307,7 +307,7 @@ function readMD()
 end
 
 --- Writes the queue to the script metadata, indexed by the given key.
----@param q table The queue
+---@param q table? The queue
 ---@param key string? The indexing key in the metadata; defaults to "key" if `nil`
 ---@return boolean # `true` on success, otherwise `false`
 function writeMD(q, key)
@@ -330,22 +330,22 @@ end
 --#region Log queue functions **********
 
 --- Gets the queue size.
--- @tparam table q The queue
--- @treturn number The queue size
+---@param q table The queue
+---@return number # The queue size
 function queueSize(q)
   return math.abs(q.first) - math.abs(q.last) + 1
 end
 
 --- Checks if the queue is empty.
--- @tparam table q The queue
--- @treturn boolean `true` if the queue is empty, otherwise `false`
+---@param q table The queue
+---@return boolean # `true` if the queue is empty, otherwise `false`
 function isQueueEmpty(q)
   if not q.first or not q.last then return true end
   if q.first > q.last then return true else return false end
 end
 
 --- Erases all elements from the queue.
--- @tparam table q The queue
+---@param q table The queue
 function eraseQueue(q)
   for i in pairs(q) do
     q[i] = nil
@@ -355,7 +355,7 @@ function eraseQueue(q)
 end
 
 --- Dumps the queue to file.
--- @tparam table q The queue
+---@param q table The queue
 function dumpQueue(q)
   -- dump all to file logger.log
   local f = getLogFile("logger.vsp", 500)
@@ -412,43 +412,38 @@ function dropHeadElem(q, use)
   if use then return unfit end
 end
 
----
--- Enqueue.
--- @tparam table queue
--- @tparam table value
-function ListPushLeft(value)
-  if not value then return end
+--- Enqueues a message(/element) to the tail of the log list/queue.
+---@param message table The structured information about the log message
+function ListPushLeft(message)
+  if not message then return end
   local first = (logList and logList.first or 0) - 1
-  value.datetime = value.datetime or dateISO()
-  value.priority = value.priority or "22"
+  message.datetime = message.datetime or dateISO()
+  message.priority = message.priority or "22"
   logList.first = first
-  logList[first] = cloneTablesDeepOthersShallow(value)
+  logList[first] = cloneTablesDeepOthersShallow(message)
   -- save the new queue to metadata
   writeMD(logList)
 end
 
----
--- Get(read) the element from the head of the list.
--- @tparam table queue
--- @treturn table
--- @treturn table
+--- Gets/Peeks the element from the head of the list/queue.
+---@param q table The queue
+---@return table # The head element
 function ListGetRight(q)
   local last = q.last
   return q[last]
 end
 
----
--- Dequeue.
--- @tparam table queue
+--- Dequeues the element from the head of the list/queue.
+---@param q table The queue
 function ListPopRight(q)
   local last = q.last
   q[last] = nil
   q.last = last - 1
 end
 
----
--- Send the logs and update the queue and metadata
--- @tparam table logList table containing the logs
+--- Sends and pops the head element(/message) of the queue, and updates the
+--- script metadata.
+---@param q table The queue
 function sendFromQueue(q)
   local ok, message = pcall(ListGetRight, q)
   assert(ok, message)
@@ -483,9 +478,8 @@ function sendFromQueue(q)
   end
 end
 
----
--- Manage the queue
--- @tparam table logList table containing the logs
+--- Manages the queue.
+---@param q table The queue
 function handleQueue(q)
   if not isQueueEmpty(q) then
     local qSize = queueSize(q)
@@ -493,7 +487,7 @@ function handleQueue(q)
     if qSize > MAX_LOG_LIST_SIZE_BEFORE_DUMP then
       local ok, resp = pcall(dumpQueue, q)
       assert(ok, resp)
-      --initialse empty queue
+      -- empty the log queue
       eraseQueue(q)
 
       ListPushLeft({scriptName="logger.vsp",
