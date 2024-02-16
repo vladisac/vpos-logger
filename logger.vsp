@@ -6,7 +6,7 @@
 -- Description: use metadata and queue for sending log messages to url (e.g. http://logs6.papertrailapp.com:17732 )
 
 
---********** Global constants and enums ***********************
+--#region Global constants and enums **********
 
 ---@enum logLevel
 logLevel = {
@@ -89,10 +89,10 @@ IsoDate.BYTE_TZ_MINUS_MARK = IsoDate.TZ_MINUS_MARK:byte(1)
 --- An unknown/unrecognized date-time.
 UNKNOWN_DATETIME = "D?T?"
 
---********** END Global constants and enums *******************
+--#endregion **********
 
 
---********** Global variables *********************************
+--#region Global variables **********
 
 assert = function(...) end
 
@@ -112,10 +112,10 @@ UploadingLogFile = {}
 --- Stop watch for uploading offline saved logs.
 UploadStopWatch = vpos.datetime.StopWatch()
 
---********** END Global variables *****************************
+--#endregion **********
 
 
---********** Helper functions *********************************
+--#region Helper functions **********
 
 --- Formats the given or current date according to the ISO 8601 (long) format
 --- `yyyy-mm-ddThh:mm:ss±hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
@@ -290,10 +290,10 @@ local function logDev(devMsg, errMsg)
   })
 end
 
---********** END Helper functions *****************************
+--#endregion **********
 
 
---********** Metadata functions *******************************
+--#region Script metadata functions **********
 
 --- Reads the queue from the script metadata, indexed by "key" key.
 -- @treturn table|nil The metadata queue indexed by "key" if present, otherwise `nil`
@@ -323,10 +323,10 @@ function clearMD()
   writeMD(logList)
 end
 
---********** END Metadata functions ***************************
+--#endregion **********
 
 
---********** Queue functions **********************************
+--#region Log queue functions **********
 
 --- Gets the queue size.
 -- @tparam table q The queue
@@ -525,10 +525,10 @@ function handleQueue(q)
   end
 end
 
---********** END Queue functions *******************************
+--#endregion **********
 
 
---********** File functions ************************************
+--#region File functions **********
 
 --- Gets the file extension from the file name (without a path).
 ---@param fileName string? The file name (without a path)
@@ -701,10 +701,10 @@ function getLogFile(scriptName, logSizeInKB)
   return {fh = fh, size = logSize, scriptBaseName = scriptBaseName}
 end
 
---********** END File functions ********************************
+--#endregion **********
 
 
---********** Message functions *********************************
+--#region Log message functions **********
 
 --- Decomposes/Unformats an offline message string/line into its parts, owning to the
 --- logger script.<br/>
@@ -825,10 +825,10 @@ function sendMessage(message)
   end
 end
 
---********** END Message functions *****************************
+--#endregion **********
 
 
---********** Upload offline logs functions *********************
+--#region Upload offline logs functions **********
 
 local function isUploadRound()
   local split = UploadStopWatch:split()
@@ -1144,10 +1144,10 @@ function uploadOfflineLogs()
   resetUploadRound()
 end
 
---********** END Upload offline logs functions *****************
+--#endregion **********
 
 
---********** Timer functions ***********************************
+--#region Timer functions **********
 
 --- Function called on timer timeouts.
 -- Timer function calling `handleQueue` and `uploadOfflineLogs` for sending
@@ -1159,10 +1159,10 @@ function onLogTimer()
   if not ok then logDev("Error while handling log queue", err) end
 end
 
---********** END Timer functions *******************************
+--#endregion **********
 
 
---********** Initialization functions **************************
+--#region Initialization functions **********
 
 local function initSettings()
     -- format the company name
@@ -1190,10 +1190,10 @@ local function initTimers()
   UploadStopWatch:start()
 end
 
---********** END Initialization functions **********************
+--#endregion **********
 
 
---********** MAIN **********************************************
+--#region MAIN **********
 
 initSettings()
 initLogList()
@@ -1205,3 +1205,5 @@ initTimers()
 ---
 -- @entrypoint ClearMetadata
 vpos.events.registerEntryPointFunction(99, "clearMD")
+
+--#endregion **********
