@@ -627,8 +627,9 @@ function getLogFile(scriptName, logSizeInKB)
   local filePath = "VPOS:" .. fileName
 
   local logSize = function()
-                    if vpos.script.Script(filePath) then
-                      return tonumber(vpos.script.Script(filePath):getSize())/1000 or 0
+                    local logFileAsScript = vpos.script.Script(filePath)
+                    if logFileAsScript then
+                      return tonumber(logFileAsScript:getSize())/1000 or 0
                     else
                       return 0
                     end
@@ -798,6 +799,7 @@ function sendMessage(message)
     local scriptBaseName = get_base_file_name_from_name(message.scriptName)
     if not LogFile or LogFile.size() >= message.logSize or
        scriptBaseName ~= LogFile.scriptBaseName then
+      if LogFile then LogFile.fh:close() end
       LogFile = getLogFile(message.scriptName, message.logSize)
     end
     LogFile.fh:write(outStr)
@@ -852,7 +854,9 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
     for _, fileName in pairs(fileList) do
       if fileName == UploadingLogFile.fileName then
         local filePath = "VPOS:" .. fileName
-        local logSize = vpos.script.Script{scriptURL = filePath}:getSize()
+        local logFileAsScript = vpos.script.Script(filePath)
+        if not logFileAsScript then break end
+        local logSize = logFileAsScript:getSize()
         if logSize <= 0 then
           deleteLogFile(filePath, true)
           break
@@ -871,20 +875,23 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
   for _, fileName in pairs(fileList) do
     if get_file_extension_from_name(fileName) == "log" then
       local filePath = "VPOS:" .. fileName
-      local logSize = vpos.script.Script{scriptURL = filePath}:getSize()
-      if logSize <= 0 then
-        deleteLogFile(filePath, true)
-      else
-        UploadingLogFile = {
-          fileName         = fileName,
-          fileSize         = logSize,
-          readOffset       = 0,
-          deletionRound    = 0,
-          lastScriptName   = getBaseFileNameWithoutLogBackupSuffixFromName(fileName) .. ".log",
-          lastIsoDate      = dateISO(),
-          lastMessageLevel = logLevel.Info,
-        }
-        return
+      local logFileAsScript = vpos.script.Script(filePath)
+      if logFileAsScript then
+        local logSize = logFileAsScript:getSize()
+        if logSize <= 0 then
+          deleteLogFile(filePath, true)
+        else
+          UploadingLogFile = {
+            fileName         = fileName,
+            fileSize         = logSize,
+            readOffset       = 0,
+            deletionRound    = 0,
+            lastScriptName   = getBaseFileNameWithoutLogBackupSuffixFromName(fileName) .. ".log",
+            lastIsoDate      = dateISO(),
+            lastMessageLevel = logLevel.Info,
+          }
+          return
+        end
       end
     end
   end
