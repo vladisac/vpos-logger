@@ -918,6 +918,18 @@ local function resetLastScriptNameAndMessageLevelOfUploadingLogFile()
   UploadingLogFile.lastMessageLevel = logLevel.Info
 end
 
+--- Changes the last message level of the uploading log file from trace to debug for
+--- undecomposable log lines, because these are in all likelyhood log lines after the
+--- first line of the logical message (broken on multiple lines); the first log line
+--- already marks the logical message as a trace. This is the displayed way also for
+--- online logs.
+local function changeLastMessageLevelOfUploadingLogFileFromTraceToDebug()
+  assert(UploadingLogFile.lastMessageLevel)
+  if UploadingLogFile.lastMessageLevel == logLevel.Trace then
+    UploadingLogFile.lastMessageLevel = logLevel.Debug
+  end
+end
+
 --- Determines if a log file line / message string is recent enough for uploading.
 ---@param decomposedDate table The decomposed sending ISO date of a log file line / message string
 ---@return boolean # `true` if the log file line is recent enough for uploading, otherwise `false`
@@ -1006,6 +1018,8 @@ local function uploadLogFileLine(line)
     if isNilOrWhitespaceString(msgBody) then
       resetLastScriptNameAndMessageLevelOfUploadingLogFile()
       return false
+    else
+      changeLastMessageLevelOfUploadingLogFileFromTraceToDebug()
     end
     ok, decomposedDate = checkLineRecencyThenUpdateLastDateOfUploadingLogFile(UploadingLogFile.lastIsoDate)
     if not ok then return false end
@@ -1025,10 +1039,10 @@ local function uploadLogFileLine(line)
     })
   else
     msgBody = decomposedMsg.messageBody
-    updateLastScriptNameAndMessageLevelOfUploadingLogFile(decomposedMsg)
 
-    --NOTE: the log line succeeded to decompose, so first update the last date of the
+    --NOTE: the log line succeeded to decompose, so first update the last XYZ fields of the
     -- uploading log file and then check if the line contains only whitespaces
+    updateLastScriptNameAndMessageLevelOfUploadingLogFile(decomposedMsg)
     ok, decomposedDate = checkLineRecencyThenUpdateLastDateOfUploadingLogFile(decomposedMsg.sendingIsoDate)
     if not ok then return false end
     if isNilOrWhitespaceString(msgBody) then return false end
