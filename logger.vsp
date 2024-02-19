@@ -19,6 +19,12 @@ logLevel = {
   Dev   = "dev",
 }
 
+---@enum LogType # The logging type/mode
+LogType = {
+  OFFLINE = "offline",
+  ONLINE  = "online",
+}
+
 --- URL where logs are shown on papertrail.
 URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
 
@@ -282,7 +288,7 @@ local function logDev(devMsg, errMsg)
     datetime     = dateISO(),
     scriptName   = "logger.vsp",
     url          = URL_PAPERTRAIL,
-    logType      = "online",
+    logType      = LogType.ONLINE,
     logSize      = 300,
     priority     = mapMessageLevelToPriority(logLevel.Dev),
     messageLevel = logLevel.Dev,
@@ -445,7 +451,7 @@ function sendFromQueue(q)
       else
         ListPushLeft({scriptName="logger.vsp",
               url=URL_PAPERTRAIL,
-              logType="online",
+              logType=LogType.ONLINE,
               logSize=300,
               priority="11",
               messageLevel=logLevel.Error,
@@ -454,7 +460,7 @@ function sendFromQueue(q)
     else
       ListPushLeft({scriptName="logger.vsp",
               url=URL_PAPERTRAIL,
-              logType="online",
+              logType=LogType.ONLINE,
               logSize=300,
               priority="11",
               messageLevel=logLevel.Error,
@@ -477,7 +483,7 @@ function handleQueue(q)
 
       ListPushLeft({scriptName="logger.vsp",
               url=URL_PAPERTRAIL,
-              logType="online",
+              logType=LogType.ONLINE,
               logSize=300,
               priority="11",
               messageLevel=logLevel.Error,
@@ -494,7 +500,7 @@ function handleQueue(q)
         if not ok then
           ListPushLeft({scriptName="logger.vsp",
                 url=URL_PAPERTRAIL,
-                logType="online",
+                logType=LogType.ONLINE,
                 logSize=300,
                 priority="11",
                 messageLevel=logLevel.Error,
@@ -741,7 +747,7 @@ end
 function formatMessage(message, fallback)
   local outStr = ""
 
-  if message.logType == "online" and not fallback then
+  if message.logType == LogType.ONLINE and not fallback then
     local scriptVersion = vpos.tables.Table(806):getData(message.scriptName, 15)
     scriptVersion = tostring((scriptVersion ~= nil and scriptVersion ~= "" and scriptVersion) or 0)
     local scriptData = string.format("%s_v:%s", message.scriptName, scriptVersion)
@@ -781,7 +787,7 @@ function sendMessage(message)
   end
 
   local fallbackToFile = false
-  if message.logType == "online" and message.url then
+  if message.logType == LogType.ONLINE and message.url then
     createOrRecreateLogSocket(message.url)
 
     local sent = LogSocket and LogSocket:write(outStr)
@@ -1038,7 +1044,7 @@ local function uploadLogFileLine(line)
       datetime     = UploadingLogFile.lastIsoDate,
       scriptName   = UploadingLogFile.lastScriptName,
       url          = URL_PAPERTRAIL,
-      logType      = "online",
+      logType      = LogType.ONLINE,
       logSize      = 300,
       priority     = mapMessageLevelToPriority(UploadingLogFile.lastMessageLevel),
       messageLevel = UploadingLogFile.lastMessageLevel,
@@ -1064,7 +1070,7 @@ local function uploadLogFileLine(line)
       datetime     = decomposedMsg.sendingIsoDate,
       scriptName   = UploadingLogFile.lastScriptName,
       url          = URL_PAPERTRAIL,
-      logType      = "online",
+      logType      = LogType.ONLINE,
       logSize      = 300,
       priority     = mapMessageLevelToPriority(decomposedMsg.messageLevel),
       messageLevel = decomposedMsg.messageLevel,

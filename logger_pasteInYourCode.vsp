@@ -16,6 +16,12 @@ local logLevel = {
   Trace = "trace",
 }
 
+--- The logging type/mode
+local LogType = {
+  OFFLINE = "offline",
+  ONLINE  = "online",
+}
+
 --- Minimum log level for logging a line/message.
 LOG_LEVEL = logLevel.Info
 
@@ -23,7 +29,7 @@ LOG_LEVEL = logLevel.Info
 LOG_SIZE = 300
 
 --- Switch to online or offline/local logs.
-LOG_TYPE = "online"
+LOG_TYPE = LogType.ONLINE
 
 --- URL where logs are shown on Papertrail.
 URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
@@ -86,7 +92,7 @@ end
 
 --- Creates a logger object.
 ---@param level string? The minimum log level for logging a line/message; defaults to `logLevel.Info` if `nil`
----@param logType string? The logging type/mode; defaults to "online" if `nil`
+---@param logType string? The logging type/mode; defaults to `LogType.ONLINE` if `nil`
 ---@param logSize number? The max. log file size in kilobytes before rollover; defaults to 300 if `nil`
 ---@param url string? The Papertrail URL; defaults to `URL_PAPERTRAIL` if `nil`
 ---@param scriptName string? The name of the script which uses this logger; defaults to " " if `nil`
@@ -103,7 +109,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   -- private fields
   local logTab =  {
                     level = level or logLevel.Info,
-                    logType = logType or "online",
+                    logType = logType or LogType.ONLINE,
                     logSize = logSize or 300,
                     url = url or URL_PAPERTRAIL,
                     scriptName = scriptName or " ",
@@ -297,7 +303,7 @@ function testOff()
   wait:show()
 
   initTab.LOGS.LOG_LEVEL = logLevel.Off
-  initTab.LOGS.LOG_TYPE = "offline"
+  initTab.LOGS.LOG_TYPE = LogType.OFFLINE
   initTab.LOGS.LOG_SIZE = 1000
   initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL
 
@@ -320,7 +326,7 @@ function testOnline()
   wait:show()
 
   initTab.LOGS.LOG_LEVEL = logLevel.Trace
-  initTab.LOGS.LOG_TYPE = "online"
+  initTab.LOGS.LOG_TYPE = LogType.ONLINE
   initTab.LOGS.LOG_SIZE = 1000
   initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL
 
@@ -357,8 +363,8 @@ function testOnlineFastlogs()
   wait:setText("online fast logs")
   wait:show()
 
-  initTab.LOGS.LOG_LEVEL = "trace"
-  initTab.LOGS.LOG_TYPE = "online"
+  initTab.LOGS.LOG_LEVEL = logLevel.Trace
+  initTab.LOGS.LOG_TYPE = LogType.ONLINE
   initTab.LOGS.LOG_SIZE = 1000
   initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL
 
@@ -409,8 +415,8 @@ function testOfflineSize()
   wait:setText("offline trace & size")
   wait:show()
 
-  initTab.LOGS.LOG_LEVEL = "trace"
-  initTab.LOGS.LOG_TYPE = "offline"
+  initTab.LOGS.LOG_LEVEL = logLevel.Trace
+  initTab.LOGS.LOG_TYPE = LogType.OFFLINE
   initTab.LOGS.LOG_SIZE = 30
   initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL
 
@@ -453,8 +459,8 @@ function testOfflineFastlogs()
 
   local BIG_JSON = [[]]
 
-  initTab.LOGS.LOG_LEVEL = "trace"
-  initTab.LOGS.LOG_TYPE = "offline"
+  initTab.LOGS.LOG_LEVEL = logLevel.Trace
+  initTab.LOGS.LOG_TYPE = LogType.OFFLINE
   initTab.LOGS.LOG_SIZE = 30
   initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL
 
