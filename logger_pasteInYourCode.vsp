@@ -16,6 +16,14 @@ local logLevel = {
   Trace = "trace",
 }
 
+--- The Syslog Protocol priority (RFC-5424)
+Priority = {
+  USER_ERROR = 11,
+  USER_WARN  = 12,
+  USER_INFO  = 14,
+  USER_DEBUG = 15,
+}
+
 --- The logging type/mode
 local LogType = {
   OFFLINE = "offline",
@@ -136,7 +144,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
                                     vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion),
                                     vpos.getSystemInfo(vpos.SystemInfo.Serial),
                                     vpos.getSystemInfo(vpos.SystemInfo.NetworkAddress))
-    logTab.priority = 14
+    logTab.priority = Priority.USER_INFO
 
     logData(logTab)
 
@@ -152,7 +160,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
       local now = vpos.datetime.DateTime():getUnixTime() or ""
       logTab.message      = now .. "@ " .. (message or "")
       logTab.messageLevel = logLevel.Trace
-      logTab.priority     = 15
+      logTab.priority     = Priority.USER_DEBUG
       logData(logTab, full)
     end
   end
@@ -162,7 +170,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if level == logLevel.Trace or level == logLevel.Debug then
       logTab.message      = message or ""
       logTab.messageLevel = logLevel.Debug
-      logTab.priority     = 15
+      logTab.priority     = Priority.USER_DEBUG
       logData(logTab, full)
     end
   end
@@ -172,7 +180,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info  then
       logTab.message      = message or ""
       logTab.messageLevel = logLevel.Info
-      logTab.priority     = 14
+      logTab.priority     = Priority.USER_INFO
       logData(logTab, full)
     end
   end
@@ -182,7 +190,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info  or level == logLevel.Warn then
       logTab.message      = message or ""
       logTab.messageLevel = logLevel.Warn
-      logTab.priority     = 12
+      logTab.priority     = Priority.USER_WARN
       logData(logTab, full)
     end
   end
@@ -193,7 +201,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
       local line = tostring(debug.getinfo(2, "l").currentline) or " "
       logTab.message      = string.format("%4s", line) .. ": " .. (message or "")
       logTab.messageLevel = logLevel.Error
-      logTab.priority     = 11
+      logTab.priority     = Priority.USER_ERROR
       logData(logTab, true)
     end
   end

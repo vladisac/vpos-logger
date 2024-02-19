@@ -19,6 +19,17 @@ logLevel = {
   Dev   = "dev",
 }
 
+---@enum Priority # The Syslog Protocol priority (RFC-5424)
+Priority = {
+  USER_ERROR = 11,
+  USER_WARN  = 12,
+  USER_DEV   = 13, --- "User notice" priority, but for consistency we're naming it "user dev"
+  USER_INFO  = 14,
+  USER_DEBUG = 15,
+
+  MAIL_INFO  = 22,
+}
+
 ---@enum LogType # The logging type/mode
 LogType = {
   OFFLINE = "offline",
@@ -91,7 +102,7 @@ IsoDate.BYTE_TIME_SEP      = IsoDate.TIME_SEP:byte(1)
 IsoDate.BYTE_TZ_UTC_MARK   = IsoDate.TZ_UTC_MARK:byte(1)
 IsoDate.BYTE_TZ_PLUS_MARK  = IsoDate.TZ_PLUS_MARK:byte(1)
 IsoDate.BYTE_TZ_MINUS_MARK = IsoDate.TZ_MINUS_MARK:byte(1)
---ATTENTION: when changing this constant, update all explicit usages of its string value in the script!
+--ATTENTION: keep this constant and all explicit usages of its string value in sync!
 --- An unknown/unrecognized date-time.
 UNKNOWN_DATETIME = "D?T?"
 
@@ -270,14 +281,16 @@ local function trimStringEndNewline(str)
   end
 end
 
+--ATTENTION: keep this mapping function and all explicit priority usages in sync! 
 local function mapMessageLevelToPriority(messageLevel)
-  if not messageLevel then                 assert(false, "Nil message level");  return 14
-  elseif messageLevel == logLevel.Trace or messageLevel == logLevel.Debug then  return 15
-  elseif messageLevel == logLevel.Info then                                     return 14
-  elseif messageLevel == logLevel.Dev then                                      return 13
-  elseif messageLevel == logLevel.Warn then                                     return 12
-  elseif messageLevel == logLevel.Error then                                    return 11
-  else                            assert(false, "Unrecognized message level");  return 14 end
+  if not messageLevel then  assert(false, "Nil message level");  return Priority.USER_INFO
+  elseif messageLevel == logLevel.Trace or
+         messageLevel == logLevel.Debug then                     return Priority.USER_DEBUG
+  elseif messageLevel == logLevel.Info then                      return Priority.USER_INFO
+  elseif messageLevel == logLevel.Dev then                       return Priority.USER_DEV
+  elseif messageLevel == logLevel.Warn then                      return Priority.USER_WARN
+  elseif messageLevel == logLevel.Error then                     return Priority.USER_ERROR
+  else             assert(false, "Unrecognized message level");  return Priority.USER_INFO end
 end
 
 --- Logs a developer message with the format "`devMsg`: `errMsg`".
@@ -290,7 +303,7 @@ local function logDev(devMsg, errMsg)
     url          = URL_PAPERTRAIL,
     logType      = LogType.ONLINE,
     logSize      = 300,
-    priority     = mapMessageLevelToPriority(logLevel.Dev),
+    priority     = Priority.USER_DEV,
     messageLevel = logLevel.Dev,
     message      = (devMsg or "") .. ": " .. (errMsg or ""),
   })
@@ -409,7 +422,7 @@ function ListPushLeft(message)
   if not message then return end
   local first = (LogList and LogList.first or 0) - 1
   message.datetime = message.datetime or dateISO()
-  message.priority = message.priority or "22"
+  message.priority = message.priority or Priority.MAIL_INFO
   LogList.first = first
   LogList[first] = cloneTablesDeepOthersShallow(message)
   -- save the new queue to metadata
@@ -454,7 +467,7 @@ function sendFromQueue(q)
           url          = URL_PAPERTRAIL,
           logType      = LogType.ONLINE,
           logSize      = 300,
-          priority     = mapMessageLevelToPriority(logLevel.Error),
+          priority     = Priority.USER_ERROR,
           messageLevel = logLevel.Error,
           message      = err,
         })
@@ -465,7 +478,7 @@ function sendFromQueue(q)
         url          = URL_PAPERTRAIL,
         logType      = LogType.ONLINE,
         logSize      = 300,
-        priority     = mapMessageLevelToPriority(logLevel.Error),
+        priority     = Priority.USER_ERROR,
         messageLevel = logLevel.Error,
         message      = err,
       })
@@ -489,7 +502,7 @@ function handleQueue(q)
         url          = URL_PAPERTRAIL,
         logType      = LogType.ONLINE,
         logSize      = 300,
-        priority     = mapMessageLevelToPriority(logLevel.Error),
+        priority     = Priority.USER_ERROR,
         messageLevel = logLevel.Error,
         message      = "QUEUE WAS ERASED:" .. tostring(resp)
       })
@@ -508,7 +521,7 @@ function handleQueue(q)
             url          = URL_PAPERTRAIL,
             logType      = LogType.ONLINE,
             logSize      = 300,
-            priority     = mapMessageLevelToPriority(logLevel.Error),
+            priority     = Priority.USER_ERROR,
             messageLevel = logLevel.Error,
             message      = resp
           })
