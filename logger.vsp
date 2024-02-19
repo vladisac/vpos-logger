@@ -1,8 +1,8 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 1.8
+--!ScriptVersion: 2.0
 -- Script name: logger.vsp
--- Author: Vlad Isac
--- Date: 03/2020
+-- Author: Vlad Isac, R. Arjocu
+-- Date: 02/2024
 -- Description: use metadata and queue for sending log messages to url (e.g. http://logs6.papertrailapp.com:17732 )
 
 
