@@ -449,22 +449,26 @@ function sendFromQueue(q)
       if ok then
         writeMD(q)
       else
-        ListPushLeft({scriptName="logger.vsp",
-              url=URL_PAPERTRAIL,
-              logType=LogType.ONLINE,
-              logSize=300,
-              priority="11",
-              messageLevel=logLevel.Error,
-              message= err})
+        ListPushLeft({
+          scriptName   = "logger.vsp",
+          url          = URL_PAPERTRAIL,
+          logType      = LogType.ONLINE,
+          logSize      = 300,
+          priority     = mapMessageLevelToPriority(logLevel.Error),
+          messageLevel = logLevel.Error,
+          message      = err,
+        })
       end
     else
-      ListPushLeft({scriptName="logger.vsp",
-              url=URL_PAPERTRAIL,
-              logType=LogType.ONLINE,
-              logSize=300,
-              priority="11",
-              messageLevel=logLevel.Error,
-              message= err})
+      ListPushLeft({
+        scriptName   = "logger.vsp",
+        url          = URL_PAPERTRAIL,
+        logType      = LogType.ONLINE,
+        logSize      = 300,
+        priority     = mapMessageLevelToPriority(logLevel.Error),
+        messageLevel = logLevel.Error,
+        message      = err,
+      })
     end
   end
 end
@@ -478,33 +482,36 @@ function handleQueue(q)
     if qSize > MAX_LOG_LIST_SIZE_BEFORE_DUMP then
       local ok, resp = pcall(dumpQueue, q)
       assert(ok, resp)
-      -- empty the log queue
-      eraseQueue(q)
+      eraseQueue(q) -- empty the log queue
 
-      ListPushLeft({scriptName="logger.vsp",
-              url=URL_PAPERTRAIL,
-              logType=LogType.ONLINE,
-              logSize=300,
-              priority="11",
-              messageLevel=logLevel.Error,
-              message= "QUEUE WAS ERASED:"..tostring(resp)})
+      ListPushLeft({
+        scriptName   = "logger.vsp",
+        url          = URL_PAPERTRAIL,
+        logType      = LogType.ONLINE,
+        logSize      = 300,
+        priority     = mapMessageLevelToPriority(logLevel.Error),
+        messageLevel = logLevel.Error,
+        message      = "QUEUE WAS ERASED:" .. tostring(resp)
+      })
       local resp2
       ok, resp2 = pcall(writeMD, q)
       assert(ok, resp2)
     else
       local limit
       if qSize < MAX_LOG_LIST_SEND_LINES then limit = qSize else limit = MAX_LOG_LIST_SEND_LINES end
-      for i=1,limit do
+      for i = 1, limit do
         local ok, resp = pcall(sendFromQueue, q)
         assert(ok, resp)
         if not ok then
-          ListPushLeft({scriptName="logger.vsp",
-                url=URL_PAPERTRAIL,
-                logType=LogType.ONLINE,
-                logSize=300,
-                priority="11",
-                messageLevel=logLevel.Error,
-                message= resp})
+          ListPushLeft({
+            scriptName   = "logger.vsp",
+            url          = URL_PAPERTRAIL,
+            logType      = LogType.ONLINE,
+            logSize      = 300,
+            priority     = mapMessageLevelToPriority(logLevel.Error),
+            messageLevel = logLevel.Error,
+            message      = resp
+          })
         end
       end
     end
