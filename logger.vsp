@@ -23,7 +23,7 @@ logLevel = {
 Priority = {
   USER_ERROR = 11,
   USER_WARN  = 12,
-  USER_DEV   = 13, --- "User notice" priority, but for consistency we're naming it "user dev"
+  USER_DEV   = 13, --- "User notice" priority, but named "user dev" for consistency
   USER_INFO  = 14,
   USER_DEBUG = 15,
 
@@ -151,10 +151,8 @@ local function dateISO(date)
   local day, month, year = date:getDate()
   local hour, minute, second = date:getTime()
 
-  return tostring(year) .. "-" .. string.format("%02d", month) .. "-" .. string.format("%02d", day) .. "T" ..
-         string.format("%02d", hour) .. ":" .. string.format("%02d", minute) .. ":" .. string.format("%02d", second)
---  return string.format("%s-%02d-%02dT%02d:%02d:%02d",
---                       tostring(year), month, day, hour, minute, second)
+  return string.format("%s-%02d-%02dT%02d:%02d:%02d",
+                       tostring(year), month, day, hour, minute, second)
 end
 
 --- Decomposes the given date in ISO 8601 (long) format `yyyy-mm-ddThh:mm:ss±hh:mm` (length
@@ -286,11 +284,11 @@ local function trimStringEndNewline(str)
   end
 end
 
---- Determines if the given string corresponds to a constant from `LogType` enum.
+--- Determines if the given string is a valid constant from `LogType` enum.
 ---@param logTypeStr string? The given log type string
----@return boolean # `true` on success, otherwise `false` <br/>
+---@return boolean # `true` if valid, otherwise `false` <br/>
 ---@see LogType
-local function isLogType(logTypeStr)
+local function isValidLogType(logTypeStr)
   if not logTypeStr then  assert(false, "Nil log type");  return false
   elseif logTypeStr == LogType.ONLINE or
          logTypeStr == LogType.OFFLINE then               return true
@@ -899,7 +897,7 @@ local function readIniSettingsForUploadingOfflineLogs()
       if initTab and type(initTab) == "table" and
          initTab.LOGS and type(initTab.LOGS) == "table" then
         local logType = string.lower(tostring(initTab.LOGS.LOG_TYPE))
-        if not isLogType(logType) then
+        if not isValidLogType(logType) then
           logDev("Can't store " .. fileName .. " setting", logType .. " is not a valid log type")
         else
           local baseFileName = get_base_file_name_from_name(fileName)

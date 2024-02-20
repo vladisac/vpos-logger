@@ -63,8 +63,8 @@ local function dateISO(date)
   local day, month, year = date:getDate()
   local hour, minute, second = date:getTime()
 
-  return tostring(year) .. "-" .. string.format("%02d", month) .. "-" .. string.format("%02d", day) .. "T" ..
-         string.format("%02d", hour) .. ":" .. string.format("%02d", minute) .. ":" .. string.format("%02d", second)
+  return string.format("%s-%02d-%02dT%02d:%02d:%02d",
+                       tostring(year), month, day, hour, minute, second)
 end
 
 --- Constants defining which file hosts are allowed.
@@ -177,7 +177,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
 
   -- used for 'Info' log level
   function self.info(message, full)
-    if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info  then
+    if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info then
       logTab.message      = message or ""
       logTab.messageLevel = logLevel.Info
       logTab.priority     = Priority.USER_INFO
@@ -187,7 +187,8 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
 
   -- used for 'Warn' log level
   function self.warn(message, full)
-    if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info  or level == logLevel.Warn then
+    if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info or
+       level == logLevel.Warn then
       logTab.message      = message or ""
       logTab.messageLevel = logLevel.Warn
       logTab.priority     = Priority.USER_WARN
@@ -197,7 +198,8 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
 
   -- used for 'Error' log level
   function self.error(message)
-    if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info  or level == logLevel.Warn or level == logLevel.Error then
+    if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info or
+       level == logLevel.Warn  or level == logLevel.Error then
       local line = tostring(debug.getinfo(2, "l").currentline) or " "
       logTab.message      = string.format("%4s", line) .. ": " .. (message or "")
       logTab.messageLevel = logLevel.Error
