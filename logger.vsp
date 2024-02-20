@@ -66,6 +66,9 @@ LOGGER_LOG_NAME = "logger.log"
 --- Backup log file name of this logger script.
 LOGGER_BACKUP_LOG_NAME = "logger.1.log"
 
+--- Default log type for uploading log files without a corresponding ".ini" file.
+---NOTE: This is a per log file, not a per log line constant, and also applies for the logger!
+LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI = LogType.ONLINE
 --- Maximum logging list/queue size allowed for uploading offline saved log lines.
 MAX_LOG_LIST_SIZE_FOR_UPLOAD = 100
 --- Maximum logging list/queue size allowed after an uploading round.
@@ -128,6 +131,8 @@ OfflineCounter = 0
 UploadingLogFile = {}
 --- Stop watch for uploading offline saved logs.
 UploadStopWatch = vpos.datetime.StopWatch()
+--- Logs related settings from all scanned ".ini" files, needed for uploading offline log files.
+IniSettingsForUploadingLogs = nil
 
 --#endregion **********
 
@@ -279,6 +284,17 @@ local function trimStringEndNewline(str)
   else
     return str
   end
+end
+
+--- Determines if the given string corresponds to a constant from `LogType` enum.
+---@param logTypeStr string? The given log type string
+---@return boolean # `true` on success, otherwise `false` <br/>
+---@see LogType
+local function isLogType(logTypeStr)
+  if not logTypeStr then  assert(false, "Nil log type");  return false
+  elseif logTypeStr == LogType.ONLINE or
+         logTypeStr == LogType.OFFLINE then               return true
+  else                  assert(false, "Not a log type");  return false end
 end
 
 --ATTENTION: keep this mapping function and all explicit priority usages in sync! 
@@ -870,6 +886,34 @@ local function isLoggerConnectedOnline()
   return LogSocket:isOpen() and LogSocket:isConnected()
 end
 
+local function readIniSettingsForUploadingOfflineLogs()
+  if IniSettingsForUploadingLogs then return end
+
+  local fileList = vpos.file.getFileList("VPOS")
+  IniSettingsForUploadingLogs = {}
+
+  for _, fileName in pairs(fileList) do
+    if get_file_extension_from_name(fileName) == "ini" then
+      local filePath = "VPOS:" .. fileName
+      local initTab = vpos.utils.readIniFromFile(filePath)
+      if initTab and type(initTab) == "table" and
+         initTab.LOGS and type(initTab.LOGS) == "table" then
+        local logType = string.lower(tostring(initTab.LOGS.LOG_TYPE))
+        if not isLogType(logType) then
+          logDev("Can't store " .. fileName .. " setting", logType .. " is not a valid log type")
+        else
+          local baseFileName = get_base_file_name_from_name(fileName)
+          if not baseFileName then
+            logDev("Can't store " .. fileName .. " setting", "Can't get base file name")
+          else
+            IniSettingsForUploadingLogs[baseFileName] = {LOG_TYPE = logType}
+          end
+        end
+      end
+    end
+  end
+end
+
 local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
   local fileList = vpos.file.getFileList("VPOS")
 
@@ -900,23 +944,29 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
   -- add a new uploading log file, while deleting encountered empty log files
   for _, fileName in pairs(fileList) do
     if get_file_extension_from_name(fileName) == "log" then
-      local filePath = "VPOS:" .. fileName
-      local logFileAsScript = vpos.script.Script(filePath)
-      if logFileAsScript then
-        local logSize = logFileAsScript:getSize()
-        if logSize <= 0 then
-          deleteLogFile(filePath, true)
-        else
-          UploadingLogFile = {
-            fileName         = fileName,
-            fileSize         = logSize,
-            readOffset       = 0,
-            deletionRound    = 0,
-            lastScriptName   = getBaseFileNameWithoutLogBackupSuffixFromName(fileName) .. ".log",
-            lastIsoDate      = dateISO(),
-            lastMessageLevel = logLevel.Info,
-          }
-          return
+      local baseFileName = getBaseFileNameWithoutLogBackupSuffixFromName(fileName)
+      local logType = (IniSettingsForUploadingLogs[baseFileName] and
+                       IniSettingsForUploadingLogs[baseFileName].LOG_TYPE) or
+                      LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
+      if logType == LogType.ONLINE then
+        local filePath = "VPOS:" .. fileName
+        local logFileAsScript = vpos.script.Script(filePath)
+        if logFileAsScript then
+          local logSize = logFileAsScript:getSize()
+          if logSize <= 0 then
+            deleteLogFile(filePath, true)
+          else
+            UploadingLogFile = {
+              fileName         = fileName,
+              fileSize         = logSize,
+              readOffset       = 0,
+              deletionRound    = 0,
+              lastScriptName   = baseFileName .. ".log",
+              lastIsoDate      = dateISO(),
+              lastMessageLevel = logLevel.Info,
+            }
+            return
+          end
         end
       end
     end
@@ -1175,6 +1225,7 @@ function uploadOfflineLogs()
 
   local maxUploadLogLines = determineMaxLogLinesForUploadRound()
   if maxUploadLogLines > 0 and isLoggerConnectedOnline() then
+    readIniSettingsForUploadingOfflineLogs()
     updateUploadingLogFileWhileDeletingEmptyLogFiles()
     if UploadingLogFile.fileName then
       local processedSize = uploadChunkOfLogFileLines(maxUploadLogLines)
