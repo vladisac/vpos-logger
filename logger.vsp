@@ -1,5 +1,5 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.1
+--!ScriptVersion: 2.2
 -- Script name: logger.vsp
 -- Author: Vlad Isac, R. Arjocu
 -- Date: 02/2024
@@ -8,7 +8,7 @@
 
 --#region Global constants and enums **********
 
----@enum logLevel # The logging level
+---@enum logLevel # Logging level.
 logLevel = {
   Off   = "off",
   Error = "error",
@@ -19,7 +19,7 @@ logLevel = {
   Dev   = "dev",
 }
 
----@enum Priority # The Syslog Protocol priority (RFC-5424)
+---@enum Priority # Syslog Protocol priority (RFC-5424).
 Priority = {
   USER_ERROR = 11,
   USER_WARN  = 12,
@@ -30,7 +30,7 @@ Priority = {
   MAIL_INFO  = 22,
 }
 
----@enum LogType # The logging type/mode
+---@enum LogType # Logging type/mode.
 LogType = {
   OFFLINE = "offline",
   ONLINE  = "online",

@@ -1,12 +1,12 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.1
+--!ScriptVersion: 2.2
 
 
 ------------------------------------------------------------------------------
 ----------- 1. GLOBAL DEFAULTS: add to top of your code and .ini file --------
 ------------------------------------------------------------------------------
 
---- The logging level
+--- Logging level.
 local logLevel = {
   Off   = "off",
   Error = "error",
@@ -16,7 +16,7 @@ local logLevel = {
   Trace = "trace",
 }
 
---- The Syslog Protocol priority (RFC-5424)
+--- Syslog Protocol priority (RFC-5424).
 Priority = {
   USER_ERROR = 11,
   USER_WARN  = 12,
@@ -24,7 +24,7 @@ Priority = {
   USER_DEBUG = 15,
 }
 
---- The logging type/mode
+--- Logging type/mode.
 local LogType = {
   OFFLINE = "offline",
   ONLINE  = "online",
@@ -33,11 +33,15 @@ local LogType = {
 --- Minimum log level for logging a line/message.
 LOG_LEVEL = logLevel.Info
 
+--- Switch to online or offline/local logs.
+LOG_TYPE = LogType.ONLINE
+
 --- Maximum log file size in kilobytes before rollover.
 LOG_SIZE = 300
 
---- Switch to online or offline/local logs.
-LOG_TYPE = LogType.ONLINE
+--- Maximum log line/message size in bytes after which is it truncated, if not doing
+--- a full send; truncation is the default behavior.
+LOG_TRUNCATE_SIZE = 1000
 
 --- URL where logs are shown on Papertrail.
 URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
@@ -98,6 +102,9 @@ function file_exists(fn, host)
   return false
 end
 
+--- The logger object.
+Log = {}
+
 --- Creates a logger object.
 ---@param level string? The minimum log level for logging a line/message; defaults to `logLevel.Info` if `nil`
 ---@param logType string? The logging type/mode; defaults to `LogType.ONLINE` if `nil`
@@ -138,14 +145,13 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
 
   -- send data about the script
   function self.scriptInfo(settings)
+    logTab.message      = string.format("====== START ======== script:%s __ version:%s __ update:%s __ pv:%s __ serialNo:%s __ ip:%s",
+                                        logTab.scriptName, logTab.scriptVersion, logTab.scriptUpdate,
+                                        vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion),
+                                        vpos.getSystemInfo(vpos.SystemInfo.Serial),
+                                        vpos.getSystemInfo(vpos.SystemInfo.NetworkAddress))
     logTab.messageLevel = logLevel.Info
-    logTab.message = string.format("====== START ======== script:%s __ version:%s __ update:%s __ pv:%s __ serialNo:%s __ ip:%s",
-                                    logTab.scriptName, logTab.scriptVersion, logTab.scriptUpdate,
-                                    vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion),
-                                    vpos.getSystemInfo(vpos.SystemInfo.Serial),
-                                    vpos.getSystemInfo(vpos.SystemInfo.NetworkAddress))
-    logTab.priority = Priority.USER_INFO
-
+    logTab.priority     = Priority.USER_INFO
     logData(logTab)
 
     if settings then
@@ -225,17 +231,17 @@ function readIni()
   -----------------------------------------------------------------------------
 
   if initTab.LOGS then
-    LOG_LEVEL = initTab.LOGS.LOG_LEVEL and string.lower(tostring(initTab.LOGS.LOG_LEVEL)) or LOG_LEVEL
-    LOG_TYPE = initTab.LOGS.LOG_TYPE and string.lower(tostring(initTab.LOGS.LOG_TYPE)) or LOG_TYPE
-    LOG_SIZE = initTab.LOGS.LOG_SIZE and tonumber(initTab.LOGS.LOG_SIZE) or LOG_SIZE
-    LOG_TRUNCATE_SIZE = initTab.LOGS.LOG_TRUNCATE_SIZE and tonumber(initTab.LOGS.LOG_TRUNCATE_SIZE) or LOG_TRUNCATE_SIZE
-    URL_PAPERTRAIL = initTab.LOGS.URL_PAPERTRAIL and tostring(initTab.LOGS.URL_PAPERTRAIL) or URL_PAPERTRAIL
+    LOG_LEVEL         = (initTab.LOGS.LOG_LEVEL         and string.lower(tostring(initTab.LOGS.LOG_LEVEL))) or LOG_LEVEL
+    LOG_TYPE          = (initTab.LOGS.LOG_TYPE          and string.lower(tostring(initTab.LOGS.LOG_TYPE)))  or LOG_TYPE
+    LOG_SIZE          = (initTab.LOGS.LOG_SIZE          and tonumber(initTab.LOGS.LOG_SIZE))                or LOG_SIZE
+    LOG_TRUNCATE_SIZE = (initTab.LOGS.LOG_TRUNCATE_SIZE and tonumber(initTab.LOGS.LOG_TRUNCATE_SIZE))       or LOG_TRUNCATE_SIZE
+    URL_PAPERTRAIL    = (initTab.LOGS.URL_PAPERTRAIL    and tostring(initTab.LOGS.URL_PAPERTRAIL))          or URL_PAPERTRAIL
   end
 
-  local scriptName = vpos.script.currentScript():getName() or ""
+  local scriptName    = vpos.script.currentScript():getName() or ""
   local scriptVersion = tostring(vpos.tables.Table(806):getData(scriptName, 15) or 0)
-  local posName = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
-  local update = vpos.tables.Table(806):getData(scriptName, 6)
+  local posName       = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
+  local update        = vpos.tables.Table(806):getData(scriptName, 6)
   local scriptUpdate
   if type(update) == "vec.types.Time" then
     scriptUpdate = tostring(update)
@@ -245,7 +251,7 @@ function readIni()
 
   if LOG_LEVEL == logLevel.Off then
     -- create a mock "object" with no functionality
-    log = {
+    Log = {
       ["scriptInfo"]   = function() end,
       [logLevel.Trace] = function() end,
       [logLevel.Debug] = function() end,
@@ -258,7 +264,7 @@ function readIni()
       vpos.view.showWindow("Log settings wrong!\001 Please set LOG_LEVEL = off or import the logger script!")
       vpos.script.exitScript()
     end
-    log = logger(LOG_LEVEL, LOG_TYPE, LOG_SIZE, URL_PAPERTRAIL, scriptName,
+    Log = logger(LOG_LEVEL, LOG_TYPE, LOG_SIZE, URL_PAPERTRAIL, scriptName,
                  scriptVersion, scriptUpdate, posName)
   end
 
@@ -271,12 +277,7 @@ function readIni()
     end
   end
 
-  local initTabAsJSON = vpos.utils.encodeJSON(initTab or {})
-  if initTabAsJSON then
-    log.scriptInfo(initTabAsJSON)
-  else
-    log.scriptInfo()
-  end
+  Log.scriptInfo(vpos.utils.encodeJSON(initTab or {}))
 
   -----------------------------------------------------------------------------
   ----------- END 3. INITIALIZATION PROCEDURE  --------------------------------
@@ -319,11 +320,11 @@ function testOff()
 
   readIni()
 
-  log.error ("ERROR com port 1")
-  log.warn ("NO INTERNET")
-  log.info ("Script settings loaded!")
-  log.debug ("var=123012 queue size = 20")
-  log.trace ("TRACE:var=123012 queue size = 20")
+  Log.error ("ERROR com port 1")
+  Log.warn ("NO INTERNET")
+  Log.info ("Script settings loaded!")
+  Log.debug ("var=123012 queue size = 20")
+  Log.trace ("TRACE:var=123012 queue size = 20")
   wait:close()
 end
 
@@ -350,20 +351,20 @@ function testOnline()
 
   readIni()
 
-  log.error ("PRI 11   EROARE com port ")
-  log.warn ("PRI 12   NO INTERNET")
-  log.info ("PRI 14   Script settings loaded!")
-  log.debug ("PRI 15   var=123012 queue size = 20")
-  log.trace ("PRI 15   TRACE:var=123012 queue size = 20")
+  Log.error ("PRI 11   EROARE com port ")
+  Log.warn ("PRI 12   NO INTERNET")
+  Log.info ("PRI 14   Script settings loaded!")
+  Log.debug ("PRI 15   var=123012 queue size = 20")
+  Log.trace ("PRI 15   TRACE:var=123012 queue size = 20")
 
   local httpClient = vpos.communication.HTTPClient ()
   local url = "https://httpbin.org/anything"
   local response, result, err = httpClient:request ("GET", url)
 
-  log.trace ("PRI 15   gesto request: "..url)
-  log.trace ("PRI 15   gesto request err: "..err)
-  log.trace ("PRI 15   gesto request result: "..result)
-  log.trace ("PRI 15   gesto request response: "..response)
+  Log.trace ("PRI 15   gesto request: "..url)
+  Log.trace ("PRI 15   gesto request err: "..err)
+  Log.trace ("PRI 15   gesto request result: "..result)
+  Log.trace ("PRI 15   gesto request response: "..response)
 
   wait:close()
   vpos.view.showWindow("Test DONE!\001Check PaperTrail!")
@@ -389,29 +390,29 @@ function testOnlineFastlogs()
   readIni()
 
   for i=1,10 do
-    log.error ("EROARE com port "..tostring(i))
+    Log.error ("EROARE com port "..tostring(i))
   end
   for i=1,10 do
-    log.warn (tostring(i).." NO INTERNET")
+    Log.warn (tostring(i).." NO INTERNET")
   end
   for i=1,10 do
-    log.info (tostring(i).." Script settings loaded!")
+    Log.info (tostring(i).." Script settings loaded!")
   end
   for i=1,10 do
-    log.debug (tostring(i).." var=123012 queue size = 20")
+    Log.debug (tostring(i).." var=123012 queue size = 20")
   end
   for i=1,10 do
-    log.trace (tostring(i).." TRACE:var=123012 queue size = 20")
+    Log.trace (tostring(i).." TRACE:var=123012 queue size = 20")
   end
 
   local httpClient = vpos.communication.HTTPClient ()
   local url = "https://httpbin.org/anything"
   local response, result, err = httpClient:request ("GET", url)
 
-  log.trace ("gesto request: "..url)
-  log.trace ("gesto request err: "..err)
-  log.trace ("gesto request result: "..result)
-  log.trace ("gesto request response: "..response)
+  Log.trace ("gesto request: "..url)
+  Log.trace ("gesto request err: "..err)
+  Log.trace ("gesto request result: "..result)
+  Log.trace ("gesto request response: "..response)
 
   wait:close()
   vpos.view.showWindow("Test DONE!\001Check PaperTrail!")
@@ -440,22 +441,22 @@ function testOfflineSize()
 
   readIni()
 
-  log.error ("EROARE com port 1")
-  log.warn ("NO INTERNET")
-  log.info ("Script settings loaded!")
-  log.debug ("var=123012 queue size = 20")
-  log.trace ("TRACE:var=123012 queue size = 20")
+  Log.error ("EROARE com port 1")
+  Log.warn ("NO INTERNET")
+  Log.info ("Script settings loaded!")
+  Log.debug ("var=123012 queue size = 20")
+  Log.trace ("TRACE:var=123012 queue size = 20")
 
   for i = 1, 100 do
     local httpClient = vpos.communication.HTTPClient ()
     local url = "https://httpbin.org/anything"
     local response, result, err = httpClient:request ("GET", url)
 
-    log.trace ("httpbin request: "..url)
-    log.trace ("httpbin request err: "..err)
-    log.trace ("httpbin request result: "..result)
-    log.trace ("httpbin request response: "..response)
-    log.trace ("________________________WAIT 2 SEC ")
+    Log.trace ("httpbin request: "..url)
+    Log.trace ("httpbin request err: "..err)
+    Log.trace ("httpbin request result: "..result)
+    Log.trace ("httpbin request response: "..response)
+    Log.trace ("________________________WAIT 2 SEC ")
     vpos.sleep("2000")
   end
 
@@ -477,19 +478,19 @@ function testOfflineFastlogs()
   readIni()
 
   for i=1,10 do
-    log.error ("EROARE com port "..tostring(i))
+    Log.error ("EROARE com port "..tostring(i))
   end
   for i=1,10 do
-    log.warn (" NO INTERNET")
+    Log.warn (" NO INTERNET")
   end
   for i=1,10 do
-    log.info (tostring(i).." Script settings loaded!")
+    Log.info (tostring(i).." Script settings loaded!")
   end
   for i=1,10 do
-    log.debug (tostring(i).." var=123012 queue size = 20")
+    Log.debug (tostring(i).." var=123012 queue size = 20")
   end
   for i=1,10 do
-    log.trace (tostring(i).." var=123012 queue size = 20")
+    Log.trace (tostring(i).." var=123012 queue size = 20")
   end
 
   for i = 1, 5 do
@@ -497,16 +498,16 @@ function testOfflineFastlogs()
     local url = "https://httpbin.org/anything"
     local response, result, err = httpClient:request ("GET", url)
 
-    log.trace ("httpbin request: "..url)
-    log.trace ("httpbin request err: "..err)
-    log.trace ("httpbin request result: "..result)
-    log.trace ("httpbin request response: "..response)
-    log.trace ("________________________WAIT 2 SEC ")
+    Log.trace ("httpbin request: "..url)
+    Log.trace ("httpbin request err: "..err)
+    Log.trace ("httpbin request result: "..result)
+    Log.trace ("httpbin request response: "..response)
+    Log.trace ("________________________WAIT 2 SEC ")
     vpos.sleep("2000")
   end
 
   for i=1,10 do
-    log.trace (tostring(i).." big JSON: "..BIG_JSON)
+    Log.trace (tostring(i).." big JSON: "..BIG_JSON)
   end
 
   wait:close()
