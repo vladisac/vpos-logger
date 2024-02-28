@@ -44,6 +44,11 @@ COMP_NAME = ""
 --- POS name.
 POS_NAME = ""
 
+--- Switch to enable asserting logger code. SHOULD be used only for development!
+ENABLE_LOGGER_ASSERTS = false
+--- Switch to enable debugging logs for the logger itself. SHOULD be used sparsely!
+ENABLE_LOGGER_LOGS = false
+
 --- Interval in milliseconds, at which the script timer fires events for logging.
 LOG_TIMER_INTERVAL = 320
 --- Interval in milliseconds, at which a new round of uploading offline logs is started.
@@ -114,8 +119,6 @@ UNKNOWN_DATETIME = "D?T?"
 
 --#region Global variables **********
 
-assert = function(...) end
-
 --- The logging list/queue containing all current messages to be logged.
 LogList = {}
 --- The structured information about the current offline log file, like the file
@@ -166,7 +169,7 @@ end
 ---   * `hours`, `minute`, `second` integer
 ---   * `timezoneHour`, `timezoneMinute` integer 
 local function decomposeIsoDate(isoDate)
-  assert(isoDate)
+  assertAndOrLog(isoDate)
 
   -- ISO 8601: y y y y - m m - d d T h h : m m : s s ± h h : m m
   -- Position: 1       5     8     11    14    17    20    23  25
@@ -289,25 +292,25 @@ end
 ---@return boolean # `true` if valid, otherwise `false` <br/>
 ---@see LogType
 local function isValidLogType(logTypeStr)
-  if not logTypeStr then  assert(false, "Nil log type");  return false
+  if not logTypeStr then  assertAndOrLog(false, "Nil log type");  return false
   elseif logTypeStr == LogType.ONLINE or
          logTypeStr == LogType.OFFLINE then               return true
-  else                  assert(false, "Not a log type");  return false end
+  else                  assertAndOrLog(false, "Not a log type");  return false end
 end
 
 --ATTENTION: keep this mapping function and all explicit priority usages in sync! 
 local function mapMessageLevelToPriority(messageLevel)
-  if not messageLevel then  assert(false, "Nil message level");  return Priority.USER_INFO
+  if not messageLevel then  assertAndOrLog(false, "Nil message level");  return Priority.USER_INFO
   elseif messageLevel == logLevel.Trace or
-         messageLevel == logLevel.Debug then                     return Priority.USER_DEBUG
-  elseif messageLevel == logLevel.Info then                      return Priority.USER_INFO
-  elseif messageLevel == logLevel.Dev then                       return Priority.USER_DEV
-  elseif messageLevel == logLevel.Warn then                      return Priority.USER_WARN
-  elseif messageLevel == logLevel.Error then                     return Priority.USER_ERROR
-  else             assert(false, "Unrecognized message level");  return Priority.USER_INFO end
+         messageLevel == logLevel.Debug then                             return Priority.USER_DEBUG
+  elseif messageLevel == logLevel.Info then                              return Priority.USER_INFO
+  elseif messageLevel == logLevel.Dev then                               return Priority.USER_DEV
+  elseif messageLevel == logLevel.Warn then                              return Priority.USER_WARN
+  elseif messageLevel == logLevel.Error then                             return Priority.USER_ERROR
+  else             assertAndOrLog(false, "Unrecognized message level");  return Priority.USER_INFO end
 end
 
---- Logs a developer message with the format "`devMsg`: `errMsg`".
+--- Logs a developer message for the logger with the format "`devMsg`: `errMsg`".
 ---@param devMsg string The developer message; should always be given by the developer
 ---@param errMsg any The error message or number; might be `nil` only exceptionally
 local function logDev(devMsg, errMsg)
@@ -321,6 +324,60 @@ local function logDev(devMsg, errMsg)
     messageLevel = logLevel.Dev,
     message      = (devMsg or "") .. ": " .. (errMsg or ""),
   })
+end
+
+local logDebug
+if ENABLE_LOGGER_LOGS then
+  --- Logs a debug message for the logger, containing the calling function name and
+  --- line and a string formatted with the given format and vararg.
+  ---@param msgFormat string The message format
+  ---@param ... any The vararg
+  logDebug = function(msgFormat, ...)
+    local info = debug.getinfo(2, "nl")
+    ListPushLeft({
+      datetime     = dateISO(),
+      scriptName   = "logger.vsp",
+      url          = URL_PAPERTRAIL,
+      logType      = LogType.ONLINE,
+      logSize      = 300,
+      priority     = Priority.USER_DEBUG,
+      messageLevel = logLevel.Debug,
+      message      = string.format("%s:%d " .. msgFormat, info.name, info.currentline, ...),
+    })
+  end
+else
+  logDebug = function(msgFormat, ...) end
+end
+
+if not ENABLE_LOGGER_ASSERTS then
+  assert = function(condition, message, ...) end
+end
+
+if ENABLE_LOGGER_LOGS then
+  --- Asserts the given condition and/or logs a debug message for the logger on
+  --- failed condition, containing the calling function name and line and the given
+  --- error message.
+  ---@param condition any The assertion condition
+  ---@param errMsg string? The error message to be displayed and/or logged on failure
+  assertAndOrLog = function(condition, errMsg)
+    assert(condition, errMsg)
+    if not condition then
+      local info = debug.getinfo(2, "nl")
+      ListPushLeft({
+        datetime     = dateISO(),
+        scriptName   = "logger.vsp",
+        url          = URL_PAPERTRAIL,
+        logType      = LogType.ONLINE,
+        logSize      = 300,
+        priority     = Priority.USER_DEBUG,
+        messageLevel = logLevel.Debug,
+        message      = string.format("%s:%d %s",
+                        info.name, info.currentline, errMsg or "assertion failed"),
+      })
+    end
+  end
+else
+  assertAndOrLog = function(condition, errMsg) assert(condition, errMsg) end
 end
 
 --#endregion **********
@@ -464,7 +521,7 @@ end
 ---@param q table The queue
 function sendFromQueue(q)
   local ok, message = pcall(ListGetRight, q)
-  assert(ok, message)
+  assertAndOrLog(ok, message)
   message.qLast = q.last
   message.qFirst = q.first
   if ok then
@@ -508,7 +565,7 @@ function handleQueue(q)
     --showStatus("Q:"..tostring(qSize))
     if qSize > MAX_LOG_LIST_SIZE_BEFORE_DUMP then
       local ok, resp = pcall(dumpQueue, q)
-      assert(ok, resp)
+      assertAndOrLog(ok, resp)
       eraseQueue(q) -- empty the log queue
 
       ListPushLeft({
@@ -522,7 +579,7 @@ function handleQueue(q)
       })
       local resp2
       ok, resp2 = pcall(writeMD, q)
-      assert(ok, resp2)
+      assertAndOrLog(ok, resp2)
     else
       local limit
       if qSize < MAX_LOG_LIST_SEND_LINES then limit = qSize else limit = MAX_LOG_LIST_SEND_LINES end
@@ -647,7 +704,7 @@ end
 ---@return boolean ok `true` if the file deletion succeeded, otherwise `false`
 ---@return number errNo A `vpos.file.Error` number
 local function deleteLogFile(filePath, logErrors)
-  assert(filePath)
+  assertAndOrLog(filePath)
   local ok, errNo = vpos.file.delete(filePath)
   if logErrors and not ok then logDev("Can't delete file " .. filePath, errNo) end
   return ok, errNo
@@ -737,7 +794,7 @@ end
 ---  * `messageLevel` string: defaulted as `logLevel.Info`
 ---  * `messageBody` string: the actual message content
 local function decomposeLoggerOfflineMessageString(str)
-  assert(str)
+  assertAndOrLog(str)
 
   local scriptName, sendingIsoDate, messageBody = str:match("^(%S+)%s+(%S+)%s+(.-)\r?\n$")
   if not scriptName then error("Can't decompose logger offline message string") end
@@ -757,7 +814,7 @@ end
 ---  * `qFirst`, `qLast` integer: the original queue boundary indexes
 ---  * `messageBody` string: the actual message content
 local function decomposeOfflineMessageString(str)
-  assert(str)
+  assertAndOrLog(str)
 
   local sendingIsoDate, messageLevel, qFirstStr, qLastStr, messageBody =
     str:match("^(%S+) %[(%S+)%] >> ([+-]?%d+):([+-]?%d+) (.-)\r?\n$")
@@ -803,7 +860,7 @@ local function createOrRecreateLogSocket(url)
   if (not LogSocket and (OfflineCounter == 0 or OfflineCounter >= 9)) or OfflineCounter >= 9 then
     local logUrl = url:gsub("http://", "")
     local address, port = logUrl:match("(.-):(%d+)")
-    assert(address and port)
+    assertAndOrLog(address and port)
     LogSocket = vpos.communication.Socket(address, port, 3000)
     OfflineCounter = 0
   end
@@ -841,6 +898,7 @@ function sendMessage(message)
        scriptBaseName ~= LogFile.scriptBaseName then
       if LogFile then LogFile.fh:close() end
       LogFile = getLogFile(message.scriptName, message.logSize)
+      logDebug("Got log file %s with current size %.2f KB", LogFile.scriptBaseName, LogFile.size())
     end
     LogFile.fh:write(outStr)
     LogFile.fh:flush()
@@ -918,7 +976,7 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
   -- update the file size and deletion round of the existing uploading log file if not empty,
   -- in which case it'll be deleted
   if UploadingLogFile.fileName then
-    assert(UploadingLogFile.fileSize)
+    assertAndOrLog(UploadingLogFile.fileSize)
     for _, fileName in pairs(fileList) do
       if fileName == UploadingLogFile.fileName then
         local filePath = "VPOS:" .. fileName
@@ -973,7 +1031,7 @@ end
 
 local function decomposeUploadingLogFileLine(line)
   local fileName = UploadingLogFile.fileName
-  assert(UploadingLogFile.fileName)
+  assertAndOrLog(fileName)
 
   if fileName == LOGGER_LOG_NAME or fileName == LOGGER_BACKUP_LOG_NAME then
     return decomposeLoggerOfflineMessageString(line)
@@ -993,7 +1051,7 @@ end
 
 local function resetLastScriptNameAndMessageLevelOfUploadingLogFile()
   local fileName = UploadingLogFile.fileName
-  assert(fileName)
+  assertAndOrLog(fileName)
 
   UploadingLogFile.lastScriptName   = getBaseFileNameWithoutLogBackupSuffixFromName(fileName) .. ".log"
   UploadingLogFile.lastMessageLevel = logLevel.Info
@@ -1005,7 +1063,7 @@ end
 --- already marks the logical message as a trace. This is the displayed way also for
 --- online logs.
 local function changeLastMessageLevelOfUploadingLogFileFromTraceToDebug()
-  assert(UploadingLogFile.lastMessageLevel)
+  assertAndOrLog(UploadingLogFile.lastMessageLevel)
   if UploadingLogFile.lastMessageLevel == logLevel.Trace then
     UploadingLogFile.lastMessageLevel = logLevel.Debug
   end
@@ -1015,7 +1073,7 @@ end
 ---@param decomposedDate table The decomposed sending ISO date of a log file line / message string
 ---@return boolean # `true` if the log file line is recent enough for uploading, otherwise `false`
 local function isRecentLogFileLine(decomposedDate)
-  assert(decomposedDate)
+  assertAndOrLog(decomposedDate)
 
   local date = vpos.datetime.DateTime()
 
@@ -1066,7 +1124,7 @@ end
 ---@return string msgBody The log message body with the date and upload try number prepended or updated <br/>
 ---@see decomposeIsoDate 
 local function checkDateAndUploadTryThenPrependOrUpdateThemInLogMessageBody(msgBody, decomposedDate)
-  assert(msgBody)
+  assertAndOrLog(msgBody)
   local i, uploadTryChar
 
   _, _, i, uploadTryChar   = msgBody:find("^%d%d%.%d%d%.%d%d%d%d_%d%d:%d%d:%d%d|U()(%d) ")
@@ -1088,7 +1146,7 @@ local function checkDateAndUploadTryThenPrependOrUpdateThemInLogMessageBody(msgB
 end
 
 local function uploadLogFileLine(line)
-  assert(line and UploadingLogFile.lastScriptName and UploadingLogFile.lastMessageLevel)
+  assertAndOrLog(line and UploadingLogFile.lastScriptName and UploadingLogFile.lastMessageLevel)
   local msgBody, decomposedDate
 
   local ok, decomposedMsg = pcall(decomposeUploadingLogFileLine, line)
@@ -1150,18 +1208,18 @@ end
 
 local function uploadChunkOfLogFileLines(maxUploadLogLines)
   local fileName = UploadingLogFile.fileName
-  assert(fileName)
+  assertAndOrLog(fileName)
 
   local uploadedLineCount = 0
   local uploadedSize = 0
   local processedSize = 0
+  logDebug("Trying to upload %s @ %d", fileName, UploadingLogFile.readOffset)
 
   local fileHandle, err = io.open("VPOS:" .. fileName, "r")
   if not fileHandle then
     logDev("Can't open file " .. fileName .. " in R mode", err)
     return processedSize
   end
-  assert(fileHandle)
 
   _, err = fileHandle:seek("set", UploadingLogFile.readOffset)
   if err then
@@ -1182,18 +1240,20 @@ local function uploadChunkOfLogFileLines(maxUploadLogLines)
     end
   end
 
+  logDebug("Processed size %d B, uploaded size %d B & lines %d",
+           processedSize, uploadedSize, uploadedLineCount)
   fileHandle:close()
   return processedSize
 end
 
 local function updateReadOffsetOfUploadingLogFile(processedSize)
-  assert(UploadingLogFile.readOffset)
+  assertAndOrLog(UploadingLogFile.readOffset)
   UploadingLogFile.readOffset = UploadingLogFile.readOffset + processedSize
 end
 
 local function deleteFullyProcessedLogFileAndUploadingLogFile()
-  assert(UploadingLogFile.fileName and UploadingLogFile.readOffset and
-         UploadingLogFile.fileSize and UploadingLogFile.deletionRound)
+  assertAndOrLog(UploadingLogFile.fileName and UploadingLogFile.readOffset and
+                 UploadingLogFile.fileSize and UploadingLogFile.deletionRound)
   if UploadingLogFile.readOffset >= UploadingLogFile.fileSize then
     local fileName = UploadingLogFile.fileName
     local filePath = "VPOS:" .. fileName
