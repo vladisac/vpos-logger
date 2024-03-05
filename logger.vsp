@@ -334,6 +334,8 @@ if ENABLE_LOGGER_LOGS then
   ---@param ... any The vararg
   logDebug = function(msgFormat, ...)
     local info = debug.getinfo(2, "nl")
+    local msg = string.format(msgFormat, ...)
+    if info then msg = string.format("%s:%d %s", info.name, info.currentline, msg) end
     ListPushLeft({
       datetime     = dateISO(),
       scriptName   = "logger.vsp",
@@ -342,7 +344,7 @@ if ENABLE_LOGGER_LOGS then
       logSize      = 300,
       priority     = Priority.USER_DEBUG,
       messageLevel = logLevel.Debug,
-      message      = string.format("%s:%d " .. msgFormat, info.name, info.currentline, ...),
+      message      = msg,
     })
   end
 else
@@ -363,6 +365,8 @@ if ENABLE_LOGGER_LOGS then
     assert(condition, errMsg)
     if not condition then
       local info = debug.getinfo(2, "nl")
+      local msg = errMsg or "assertion failed"
+      if info then msg = string.format("%s:%d %s", info.name, info.currentline, msg) end
       ListPushLeft({
         datetime     = dateISO(),
         scriptName   = "logger.vsp",
@@ -371,8 +375,7 @@ if ENABLE_LOGGER_LOGS then
         logSize      = 300,
         priority     = Priority.USER_DEBUG,
         messageLevel = logLevel.Debug,
-        message      = string.format("%s:%d %s",
-                        info.name, info.currentline, errMsg or "assertion failed"),
+        message      = msg,
       })
     end
   end
@@ -477,7 +480,7 @@ end
 ---@see isQueueEmpty
 function getInitialQueue()
   local ok, initMetaData = pcall(readMD)
-  if not ok then -- `initMetaData` is pcall's error message here
+  if not ok then -- `initMetaData` is `pcall`s error message here
     logDev("Can't read metadata", initMetaData)
   end
   if ok and initMetaData and not isQueueEmpty(initMetaData) then
@@ -746,7 +749,7 @@ function getLogFile(scriptName, logSizeInKB)
     local backupFilePath = "VPOS:" .. backupFileName
     local ok, frOk, frErr = pcall(file_rename, filePath, backupFilePath, true)
     if not ok then -- the `file_rename()` call failed
-      if curSize >= fileSize then -- `frOk` is pcall's error message here
+      if curSize >= fileSize then -- `frOk` is `pcall`s error message here
         logDev("Can't rename file " .. fileName .. " to " .. backupFilePath, frOk)
       end
     else -- the `file_rename()` call succeeded
@@ -1099,7 +1102,7 @@ end
 local function checkLineRecencyThenUpdateLastDateOfUploadingLogFile(isoDate)
   local ok, decomposedDate = pcall(decomposeIsoDate, isoDate)
   if not ok then
-    -- `decomposedDate` is pcall's error message here
+    -- `decomposedDate` is `pcall`s error message here
     logDev("Can't decompose " .. isoDate .. " as ISO date", decomposedDate)
     -- upon errors consider the log line as being recent
     return true, nil
@@ -1327,7 +1330,7 @@ local function initLogList()
   assert(ok, LogList)
   if not ok then
     ok, LogList = pcall(getInitialQueue)
-    if not ok then -- `LogList` is pcall's error message here
+    if not ok then -- `LogList` is `pcall`s error message here
       logDev("Can't get initial log queue", LogList)
       LogList = {first = 0, last = -1}
     end

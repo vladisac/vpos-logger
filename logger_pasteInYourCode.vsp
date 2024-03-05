@@ -17,7 +17,7 @@ local logLevel = {
 }
 
 --- Syslog Protocol priority (RFC-5424).
-Priority = {
+local Priority = {
   USER_ERROR = 11,
   USER_WARN  = 12,
   USER_INFO  = 14,
@@ -114,7 +114,7 @@ Log = {}
 ---@param scriptVersion string? The version of the script which uses this logger; defaults to "0" if `nil`
 ---@param scriptUpdate string? The last update date of the script which uses this logger; defaults to " " if `nil`
 ---@param vposName string? The name of the VPOS which uses this logger; defaults to "" if `nil`
----@return table self A new logger instance.
+---@return table self A new logger instance
 function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptUpdate, vposName)
   -- create a new instance
   local self = {
@@ -202,15 +202,54 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     end
   end
 
-  -- used for 'Error' log level
-  function self.error(message)
+  --- Used for `logLevel.Error` logs, which always sends the full message.<br/>
+  --- A code line number is prepended to the message, depending on `funLevel`s value:
+  --- * if &lt; 1, nothing is prepended;
+  --- * if 1, the line number of the calling function is used;
+  --- * if &gt; 1, the line number at the given call stack function level is used; if
+  ---   no function is present at that level, nothing is prepanded.
+  ---@param message string? The message to be logged
+  ---@param funLevel number? The call stack function level to prepend debug info; defaults to 1
+  function self.error(message, funLevel)
     if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info or
        level == logLevel.Warn  or level == logLevel.Error then
-      local line = tostring(debug.getinfo(2, "l").currentline) or " "
-      logTab.message      = string.format("%4s", line) .. ": " .. (message or "")
+      local line = ""
+      local f = funLevel or 1
+      if f >= 1 then
+        local lineNo = tostring(debug.getinfo(f + 1, "l").currentline)
+        if lineNo then line = string.format("%4s: ", lineNo) end
+      end
+      logTab.message      = line .. (message or "")
       logTab.messageLevel = logLevel.Error
       logTab.priority     = Priority.USER_ERROR
       logData(logTab, true)
+    end
+  end
+
+  --- Logs the given message of the given logging level.<br/>
+  --- The `full_or_funLevel` parameter has different meanings, depending on the logging
+  --- level:
+  --- * for non-error messages, it's a flag to send the full message if `true`, otherwise
+  ---   the possibly truncated message;
+  --- * for error messages, it represents the call stack function level for prepending
+  ---   debug info, which is passed to the error level logging function:
+  ---   - &lt; 1 no debug info;
+  ---   - 1 debug info from calling function;
+  ---   - &gt; 1 debug info from respective function level, or no debug info if unavailable;
+  ---   - defaults to 1.
+  ---@param messageLevel logLevel The message logging level
+  ---@param message string? The message to be logged
+  ---@param full_or_funLevel boolean|number? Flag to send the full message for non-error messages, otherwise the call stack function level to prepend debug info
+  function self.log(messageLevel, message, full_or_funLevel)
+    if messageLevel == logLevel.Error then
+      local f = 2
+      if type(full_or_funLevel) == "number" then
+        f = (full_or_funLevel < 1 and 0) or (full_or_funLevel + 1)
+      end
+      self.error(message, f)
+    else
+      local func = self[messageLevel]
+      if func then func(message, full_or_funLevel) end
     end
   end
 
