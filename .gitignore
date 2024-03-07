@@ -1,2 +1,4 @@
-# ignored files
+# ignored files by name and extension
+
+# ignored files by path
 .vscode/settings.json

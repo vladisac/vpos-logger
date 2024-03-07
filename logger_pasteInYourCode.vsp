@@ -63,7 +63,7 @@ URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
 ---@param date vpos.datetime.DateTime? Date to be formatted; defaults to the current date if `nil`
 ---@return string # The formatted given or current date
 local function dateISO(date)
-  local date = date or vpos.datetime.DateTime()
+  date = date or vpos.datetime.DateTime()
   local day, month, year = date:getDate()
   local hour, minute, second = date:getTime()
 
@@ -226,7 +226,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     end
   end
 
-  --- Logs the given message of the given logging level.<br/>
+  --- Logs the given message with the given logging level.<br/>
   --- The `full_or_funLevel` parameter has different meanings, depending on the logging
   --- level:
   --- * for non-error messages, it's a flag to send the full message if `true`, otherwise

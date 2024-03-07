@@ -110,7 +110,7 @@ IsoDate.BYTE_TIME_SEP      = IsoDate.TIME_SEP:byte(1)
 IsoDate.BYTE_TZ_UTC_MARK   = IsoDate.TZ_UTC_MARK:byte(1)
 IsoDate.BYTE_TZ_PLUS_MARK  = IsoDate.TZ_PLUS_MARK:byte(1)
 IsoDate.BYTE_TZ_MINUS_MARK = IsoDate.TZ_MINUS_MARK:byte(1)
---ATTENTION: keep this constant and all explicit usages of its string value in sync!
+--ATTENTION: keep this constant and all explicit usages of its string value in sync!<br/>
 --- An unknown/unrecognized date-time.
 UNKNOWN_DATETIME = "D?T?"
 
@@ -150,7 +150,7 @@ IniSettingsForUploadingLogs = nil
 ---@param date vpos.datetime.DateTime? Date to be formatted; defaults to the current date if `nil`
 ---@return string # The formatted given or current date
 local function dateISO(date)
-  local date = date or vpos.datetime.DateTime() ---@diagnostic disable-line: redefined-local
+  date = date or vpos.datetime.DateTime()
   local day, month, year = date:getDate()
   local hour, minute, second = date:getTime()
 
