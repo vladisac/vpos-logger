@@ -952,7 +952,8 @@ local function readIniSettingsForUploadingOfflineLogs()
   IniSettingsForUploadingLogs = {}
 
   for _, fileName in pairs(fileList) do
-    if get_file_extension_from_name(fileName) == "ini" then
+    local fileExt = string.lower(get_file_extension_from_name(fileName) or "")
+    if fileExt == "ini" then
       local filePath = "VPOS:" .. fileName
       local initTab = vpos.utils.readIniFromFile(filePath)
       if initTab and type(initTab) == "table" and
@@ -1002,7 +1003,8 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
 
   -- add a new uploading log file, while deleting encountered empty log files
   for _, fileName in pairs(fileList) do
-    if get_file_extension_from_name(fileName) == "log" then
+    local fileExt = string.lower(get_file_extension_from_name(fileName) or "")
+    if fileExt == "log" then
       local baseFileName = getBaseFileNameWithoutLogBackupSuffixFromName(fileName)
       local logType = (IniSettingsForUploadingLogs[baseFileName] and
                        IniSettingsForUploadingLogs[baseFileName].LOG_TYPE) or
