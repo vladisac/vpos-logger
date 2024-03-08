@@ -71,6 +71,10 @@ LOGGER_LOG_NAME = "logger.log"
 --- Backup log file name of this logger script.
 LOGGER_BACKUP_LOG_NAME = "logger.1.log"
 
+--- Flag indicating if uploading offline logs is supported on the current VPOS.
+IS_UPLOADING_LOGS_SUPPORTED = false
+--- Flag indicating if uploading offline logs is supported on the current VPOS.
+MIN_VPOS_VERSION_FOR_UPLOADING_LOGS = "6.3.0.0"
 --- Default log type for uploading log files without a corresponding ".ini" file.
 ---NOTE: This is a per log file, not a per log line constant, and also applies for the logger!
 LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI = LogType.ONLINE
@@ -284,6 +288,43 @@ local function trimStringEndNewline(str)
   else
     return str
   end
+end
+
+--- Converts the given version string with the format "`major`.`minor`.`patch`.`build`"
+--- to a version number with each part multiplied by 1000, so each part is allowed to
+--- have the value range [0, 999]. At least a "`major`.`minor`" version must be given.<br/>
+--- Examples:
+--- * a "7.1" version gives        7'001'000'000;
+--- * a "7.1.20" version gives     7'001'020'000;
+--- * a "7.1.20.333" version gives 7'001'020'333;
+---@param versionStr string? # The version string
+---@return number? # The version number on success, otherwise `0`
+local function convertVersionStringToNumber(versionStr)
+  if isNilOrWhitespaceString(versionStr) then return 0 end
+  ---@cast versionStr string
+
+  local major, minor, patch, build = versionStr:match("(%d+)%.(%d+)%.(%d+)%.(%d+)")
+  if major then
+    return tonumber(major) * 1000000000 +
+           tonumber(minor) *    1000000 +
+           tonumber(patch) *       1000 +
+           tonumber(build)
+  end
+
+  major, minor, patch = versionStr:match("(%d+)%.(%d+)%.(%d+)")
+  if major then
+    return tonumber(major) * 1000000000 +
+           tonumber(minor) *    1000000 +
+           tonumber(patch) *       1000
+  end
+
+  major, minor = versionStr:match("(%d+)%.(%d+)")
+  if major then
+    return tonumber(major) * 1000000000 +
+           tonumber(minor) *    1000000
+  end
+
+  return 0
 end
 
 --- Determines if the given string is a valid constant from `LogType` enum.
@@ -1322,8 +1363,11 @@ end
 
 --- Timer function for periodically logging the real-time and offline logs.
 function onLogTimer()
-  local ok, err = pcall(uploadOfflineLogs)
-  if not ok then logDev("Error while uploading offline logs", err) end
+  local ok, err
+  if IS_UPLOADING_LOGS_SUPPORTED then
+    ok, err = pcall(uploadOfflineLogs)
+    if not ok then logDev("Error while uploading offline logs", err) end
+  end
   ok, err = pcall(handleQueue, LogList)
   if not ok then logDev("Error while handling log queue", err) end
 end
@@ -1354,6 +1398,13 @@ local function initLogList()
   end
 end
 
+local function initUploadingOfflineLogsSupport()
+  local vposVersion = vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion)
+  local curVersionNo = convertVersionStringToNumber(vposVersion)
+  local minVersionNo = convertVersionStringToNumber(MIN_VPOS_VERSION_FOR_UPLOADING_LOGS)
+  IS_UPLOADING_LOGS_SUPPORTED = (curVersionNo >= minVersionNo)
+end
+
 local function initTimers()
   vpos.events.registerTimerFunction("onLogTimer", LOG_TIMER_INTERVAL)
   UploadStopWatch:start()
@@ -1366,6 +1417,7 @@ end
 
 initSettings()
 initLogList()
+initUploadingOfflineLogsSupport()
 
 vpos.script.registerAsInterScript()
 
