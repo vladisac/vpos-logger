@@ -701,6 +701,16 @@ local function file_rename(fn1, fn2, overwrite)
   return ok, err
 end
 
+--- Gets the file size as a script, by interogating VPOS.
+---@param filePath string? The file path
+---@return number # The file size on success, otherwise `-1`
+local function get_file_size_as_script(filePath)
+  if not filePath then return -1 end
+
+  local fileAsScript = vpos.script.Script(filePath)
+  return (fileAsScript and tonumber(fileAsScript:getSize())) or -1
+end
+
 --- Delete the given log file.
 ---@param filePath string The log file path
 ---@param logErrors boolean Flag for logging any encountered error
@@ -727,16 +737,12 @@ function getLogFile(scriptName, logSizeInKB)
   local filePath = "VPOS:" .. fileName
 
   local logSize = function()
-                    local logFileAsScript = vpos.script.Script(filePath)
-                    if logFileAsScript then
-                      return tonumber(logFileAsScript:getSize())/1000 or 0
-                    else
-                      return 0
-                    end
-                  end
+      local logSize = get_file_size_as_script(filePath)
+      return (logSize <= 0 and 0) or (logSize / 1000)
+    end
 
   local curSize = logSize()
-  local fh, errMsg
+  local fh, errMsg, devMsg
   if curSize < fileSize then
     fh, errMsg = io.open(filePath, "a+")
     assert(fh, errMsg)
@@ -748,25 +754,26 @@ function getLogFile(scriptName, logSizeInKB)
     local backupFileName = fileName:sub(1, -5) .. ".1.log"
     local backupFilePath = "VPOS:" .. backupFileName
     local ok, frOk, frErr = pcall(file_rename, filePath, backupFilePath, true)
-    if not ok then -- the `file_rename()` call failed
-      if curSize >= fileSize then -- `frOk` is `pcall`s error message here
-        logDev("Can't rename file " .. fileName .. " to " .. backupFilePath, frOk)
+    if not ok then -- the log file wasn't renamed, `frOk` is `pcall`s error message here
+      devMsg = "Can't rename file " .. fileName .. " to " .. backupFilePath
+      if curSize >= fileSize then logDev(devMsg, frOk) else logDebug(devMsg .. ": " .. frOk) end
+    elseif not frOk then -- the log file wasn't renamed
+      devMsg = "Can't rename file " .. fileName .. " to " .. backupFilePath
+      if curSize >= fileSize then logDev(devMsg, frErr) else logDebug(devMsg .. ": " .. frErr) end
+
+      --NOTE: for all below code, we don't need to check if `UploadingLogFile.fileName`
+      -- exists (is non-nil), because checking equality against a valid string won't
+      -- raise an error, but will return false as expected!
+
+      -- delete the log file and reset the uploading log file
+      if (deleteLogFile(filePath, true)) and UploadingLogFile.fileName == fileName then
+        UploadingLogFile = {}
       end
-    else -- the `file_rename()` call succeeded
-      if not frOk then -- the log file wasn't renamed
-        if curSize >= fileSize then
-          logDev("Can't rename file " .. fileName .. " to " .. backupFilePath, frErr)
-        end
-        -- delete the log file and reset the uploading log file
-        if (deleteLogFile(filePath, true)) and UploadingLogFile.fileName == fileName then
-          UploadingLogFile = {}
-        end
-      else -- the log file was successfully renamed
-        if UploadingLogFile.fileName == fileName then -- update file name of uploading log file
-          UploadingLogFile.fileName = backupFileName
-        elseif UploadingLogFile.fileName == backupFileName then -- reset the uploading log file
-          UploadingLogFile = {}
-        end
+    else -- the log file was successfully renamed
+      if UploadingLogFile.fileName == fileName then -- update file name of uploading log file
+        UploadingLogFile.fileName = backupFileName
+      elseif UploadingLogFile.fileName == backupFileName then -- reset the uploading log file
+        UploadingLogFile = {}
       end
     end
 
@@ -984,11 +991,9 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
     for _, fileName in pairs(fileList) do
       if fileName == UploadingLogFile.fileName then
         local filePath = "VPOS:" .. fileName
-        local logFileAsScript = vpos.script.Script(filePath)
-        if not logFileAsScript then break end
-        local logSize = logFileAsScript:getSize()
+        local logSize = get_file_size_as_script(filePath)
         if logSize <= 0 then
-          deleteLogFile(filePath, true)
+          if logSize == 0 then deleteLogFile(filePath, true) end
           break
         else
           if logSize > UploadingLogFile.fileSize then UploadingLogFile.deletionRound = 0 end
@@ -1011,23 +1016,20 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
                       LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
       if logType == LogType.ONLINE then
         local filePath = "VPOS:" .. fileName
-        local logFileAsScript = vpos.script.Script(filePath)
-        if logFileAsScript then
-          local logSize = logFileAsScript:getSize()
-          if logSize <= 0 then
-            deleteLogFile(filePath, true)
-          else
-            UploadingLogFile = {
-              fileName         = fileName,
-              fileSize         = logSize,
-              readOffset       = 0,
-              deletionRound    = 0,
-              lastScriptName   = baseFileName .. ".log",
-              lastIsoDate      = dateISO(),
-              lastMessageLevel = logLevel.Info,
-            }
-            return
-          end
+        local logSize = get_file_size_as_script(filePath)
+        if logSize <= 0 then
+          if logSize == 0 then deleteLogFile(filePath, true) end
+        else
+          UploadingLogFile = {
+            fileName         = fileName,
+            fileSize         = logSize,
+            readOffset       = 0,
+            deletionRound    = 0,
+            lastScriptName   = baseFileName .. ".log",
+            lastIsoDate      = dateISO(),
+            lastMessageLevel = logLevel.Info,
+          }
+          return
         end
       end
     end
@@ -1257,11 +1259,23 @@ local function updateReadOffsetOfUploadingLogFile(processedSize)
 end
 
 local function deleteFullyProcessedLogFileAndUploadingLogFile()
-  assertAndOrLog(UploadingLogFile.fileName and UploadingLogFile.readOffset and
+  local fileName = UploadingLogFile.fileName
+  assertAndOrLog(fileName                  and UploadingLogFile.readOffset and
                  UploadingLogFile.fileSize and UploadingLogFile.deletionRound)
+  local filePath = "VPOS:" .. fileName
+
+  -- update size of the uploading log file  
+  local logSize = get_file_size_as_script(filePath)
+  if logSize < 0 then
+    logDebug("Can't get file size of %s , using previous %d B",
+      fileName, UploadingLogFile.fileSize)
+  elseif UploadingLogFile.fileSize ~= logSize then
+    logDebug("Unexpected file size change for %s , %d to %d B",
+      fileName, UploadingLogFile.fileSize, logSize)
+    UploadingLogFile.fileSize = logSize
+  end
+
   if UploadingLogFile.readOffset >= UploadingLogFile.fileSize then
-    local fileName = UploadingLogFile.fileName
-    local filePath = "VPOS:" .. fileName
     local ok, errNo = false, nil
     for _ = 0, 2 do
       ok, errNo = deleteLogFile(filePath, false)
