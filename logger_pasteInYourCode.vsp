@@ -71,8 +71,8 @@ local function dateISO(date)
                        tostring(year), month, day, hour, minute, second)
 end
 
---- Constants defining which file hosts are allowed.
-AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = false}
+--- Constants defining which file hosts are allowed.<br/>
+local AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = false}
 
 --- Checks for the existance of the file.
 ---@param fn string The file name/path to be checked
@@ -93,9 +93,9 @@ function file_exists(fn, host)
   host = host or fileHost or "VPOS"
   if not AllowedFileHosts[host] then return false end
 
-  local scripts = vpos.file.getFileList(host)
-  for _, s in pairs(scripts) do
-    if fn == s then
+  local files = vpos.file.getFileList(host)
+  for _, name in pairs(files) do
+    if fn == name then
       return true
     end
   end

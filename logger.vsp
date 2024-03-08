@@ -264,7 +264,7 @@ local function cloneTablesDeepOthersShallow(obj)
 end
 
 --- Determines if a string is nil or empty, or contains only whitespaces.
----@param str string The string
+---@param str string? The string to check
 ---@return boolean # `true` if the string is nil or empty or only whitespaces, otherwise `false`
 local function isNilOrWhitespaceString(str)
   if not str or str:len() == 0 then return true end
@@ -273,12 +273,11 @@ end
 
 --- Trims one newline character combination, LF (Linux) or CR-LF (Windows), from the
 --- end of the given string.<br/>
---- NOTE: CR (macOS) seems not to be supported by Lua or VPOS!<br/>
---- Raises an error if the given string is `nil`. 
----@param str string The string
----@return string str The trimmed string
+--- NOTE: CR (macOS) seems not to be supported by Lua or VPOS!
+---@param str string? The string to trim
+---@return string? str The trimmed string on valid input, otherwise `nil`
 local function trimStringEndNewline(str)
-  if not str then error("Nil string") end
+  if not str then return nil end
   local i, _ = str:find("\r?\n$")
   if i then
     return str:sub(1, i - 1)
@@ -645,9 +644,9 @@ local function getBaseFileNameWithoutLogBackupSuffixFromName(fileName)
   return removeLogBackupSuffixFromBaseFileName(baseFileName)
 end
 
---- Constants defining which file hosts are allowed.
---NOTE: defining this here, because it's exclusively used in the next fun. 
-AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = false}
+--- Constants defining which file hosts are allowed.<br/>
+--NOTE: defining this here, because it's exclusively used in the next function
+local AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = false}
 
 --- Checks for the existance of the file.
 ---@param fn string The file name/path to be checked
@@ -668,9 +667,9 @@ local function file_exists(fn, host)
   host = host or fileHost or "VPOS"
   if not AllowedFileHosts[host] then return false end
 
-  local scripts = vpos.file.getFileList(host)
-  for _, s in pairs(scripts) do
-    if fn == s then
+  local files = vpos.file.getFileList(host)
+  for _, name in pairs(files) do
+    if fn == name then
       return true
     end
   end
@@ -908,7 +907,7 @@ function sendMessage(message)
        scriptBaseName ~= LogFile.scriptBaseName then
       if LogFile then LogFile.fh:close() end
       LogFile = getLogFile(message.scriptName, message.logSize)
-      logDebug("Got log file %s with current size %.2f KB", LogFile.scriptBaseName, LogFile.size())
+      logDebug("Got %s file with current size %.2f KB", message.scriptName, LogFile.size())
     end
     LogFile.fh:write(outStr)
     LogFile.fh:flush()
@@ -1159,6 +1158,7 @@ local function uploadLogFileLine(line)
   local ok, decomposedMsg = pcall(decomposeUploadingLogFileLine, line)
   if not ok then -- there can be multi-line messages, messages with unknown format etc.
     msgBody = trimStringEndNewline(line)
+    ---@cast msgBody string
 
     --NOTE: the log line failed to decompose, so first check if it contains only whitespaces
     if isNilOrWhitespaceString(msgBody) then
@@ -1192,6 +1192,7 @@ local function uploadLogFileLine(line)
     ok, decomposedDate = checkLineRecencyThenUpdateLastDateOfUploadingLogFile(decomposedMsg.sendingIsoDate)
     if not ok then return false end
     if isNilOrWhitespaceString(msgBody) then return false end
+    ---@cast msgBody string
 
     ok, msgBody = checkDateAndUploadTryThenPrependOrUpdateThemInLogMessageBody(msgBody, decomposedDate)
     if not ok then return false end
@@ -1217,9 +1218,8 @@ local function uploadChunkOfLogFileLines(maxUploadLogLines)
   local fileName = UploadingLogFile.fileName
   assertAndOrLog(fileName)
 
-  local uploadedLineCount = 0
-  local uploadedSize = 0
-  local processedSize = 0
+  local uploadedLineCount,  uploadedSize  = 0, 0
+  local processedLineCount, processedSize = 0, 0
   logDebug("Trying to upload %s @ %d", fileName, UploadingLogFile.readOffset)
 
   local fileHandle, err = io.open("VPOS:" .. fileName, "r")
@@ -1239,6 +1239,7 @@ local function uploadChunkOfLogFileLines(maxUploadLogLines)
     if not line then break end
 
     local lineLen = string.len(line)
+    processedLineCount = processedLineCount + 1
     processedSize = processedSize + lineLen
 
     if uploadLogFileLine(line) then
@@ -1247,8 +1248,8 @@ local function uploadChunkOfLogFileLines(maxUploadLogLines)
     end
   end
 
-  logDebug("Processed size %d B, uploaded size %d B & lines %d",
-           processedSize, uploadedSize, uploadedLineCount)
+  logDebug("Processed size %d B & lines %d, uploaded size %d B & lines %d",
+    processedSize, processedLineCount, uploadedSize, uploadedLineCount)
   fileHandle:close()
   return processedSize
 end
