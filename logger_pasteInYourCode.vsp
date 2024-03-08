@@ -79,7 +79,7 @@ local AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = fals
 ---@param host string? The file host; defaults to "VPOS" if `nil` and a host can't be extracted from `fn`
 ---@return boolean `true` if the file exists, otherwise `false` <br/>
 ---@see AllowedFileHosts
-function file_exists(fn, host)
+local function file_exists(fn, host)
   if not fn then return false end
 
   local i, j = string.find(fn, ":", 1, true)

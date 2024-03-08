@@ -650,24 +650,27 @@ end
 
 --#region File functions **********
 
---- Gets the file extension from the file name (without a path).
+--- Gets the file extension without the leading `.` dot character, from the file
+--- name (without a path).<br/>
+--- NOTE: Only letters are considered as an extension!
 ---@param fileName string? The file name (without a path)
 ---@return string? # The file extension on successful extraction, otherwise `nil`
 local function get_file_extension_from_name(fileName)
   if not fileName then return nil end
 
-  local i, _ = fileName:find("%.%w*$")
+  local i, _ = fileName:find("%.%a*$")
   return ((not i or (i == 1)) and "") or fileName:sub(i + 1)
 end
 
---- Gets the base file name, namely the file name without the extension, from the file name
---- (without a path).
+--- Gets the base file name, namely the file name without the extension, from the
+--- file name (without a path).<br/>
+--- NOTE: Only letters are considered as an extension!
 ---@param fileName string? The file name (without a path)
 ---@return string? # The base file name on successful extraction, otherwise `nil`
 local function get_base_file_name_from_name(fileName)
   if not fileName then return nil end
 
-  local i, _ = fileName:find("%.%w*$")
+  local i, _ = fileName:find("%.%a*$")
   return ((not i or (i == 1)) and fileName) or fileName:sub(1, i - 1)
 end
 
