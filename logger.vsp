@@ -496,10 +496,10 @@ function dumpQueue(q)
 
   local message = ""
   local size
-  q.first = nil
-  q.last = nil
-  for _, v in pairs(q) do
-    if (v.scriptName and v.datetime) or v.message then
+  local first, last = q.first, q.last
+  for k = last, first, -1 do
+    local v = q[k]
+    if v and ((v.scriptName and v.datetime) or v.message) then
       message = message ..
                 (v.scriptName or "") .. " " .. (v.datetime or "") .. " " .. (v.message or "") .. "\n"
       size = #message
