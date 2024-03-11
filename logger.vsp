@@ -74,7 +74,7 @@ LOGGER_BACKUP_LOG_NAME = "logger.1.log"
 --- Flag indicating if uploading offline logs is supported on the current VPOS.
 IS_UPLOADING_LOGS_SUPPORTED = false
 --- Flag indicating if uploading offline logs is supported on the current VPOS.
-MIN_VPOS_VERSION_FOR_UPLOADING_LOGS = "6.3.0.0"
+MIN_VPOS_VERSION_FOR_UPLOADING_LOGS = "6.3.7.0"
 --- Default log type for uploading log files without a corresponding ".ini" file.
 ---NOTE: This is a per log file, not a per log line constant, and also applies for the logger!
 LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI = LogType.ONLINE
@@ -610,15 +610,14 @@ function handleQueue(q)
       local ok, resp = pcall(dumpQueue, q)
       assertAndOrLog(ok, resp)
       eraseQueue(q) -- empty the log queue
-
       ListPushLeft({
         scriptName   = "logger.vsp",
         url          = URL_PAPERTRAIL,
         logType      = LogType.ONLINE,
         logSize      = 300,
-        priority     = Priority.USER_ERROR,
-        messageLevel = logLevel.Error,
-        message      = "QUEUE WAS ERASED:" .. tostring(resp)
+        priority     = Priority.USER_WARN,
+        messageLevel = logLevel.Warn,
+        message      = "DUMPED & ERASED QUEUE: " .. tostring(resp)
       })
       local resp2
       ok, resp2 = pcall(writeMD, q)
