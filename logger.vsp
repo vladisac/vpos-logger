@@ -1007,15 +1007,18 @@ local function readIniSettingsForUploadingOfflineLogs()
       local initTab = vpos.utils.readIniFromFile(filePath)
       if initTab and type(initTab) == "table" and
          initTab.LOGS and type(initTab.LOGS) == "table" then
-        local logType = string.lower(tostring(initTab.LOGS.LOG_TYPE))
-        if not isValidLogType(logType) then
-          logDev("Can't store " .. fileName .. " setting", logType .. " is not a valid log type")
-        else
-          local baseFileName = get_base_file_name_from_name(fileName)
-          if not baseFileName then
-            logDev("Can't store " .. fileName .. " setting", "Can't get base file name")
+        local iniLogType = initTab.LOGS.LOG_TYPE
+        if iniLogType then
+          local logType = string.lower(tostring(iniLogType))
+          if not isValidLogType(logType) then
+            logDev("Can't store " .. fileName .. " setting", logType .. " is not a valid log type")
           else
-            IniSettingsForUploadingLogs[baseFileName] = {LOG_TYPE = logType}
+            local baseFileName = get_base_file_name_from_name(fileName)
+            if not baseFileName then
+              logDev("Can't store " .. fileName .. " setting", "Can't get base file name")
+            else
+              IniSettingsForUploadingLogs[baseFileName] = {LOG_TYPE = logType}
+            end
           end
         end
       end
