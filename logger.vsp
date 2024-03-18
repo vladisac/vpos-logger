@@ -47,13 +47,13 @@ POS_NAME = ""
 --- Switch to enable asserting logger code. SHOULD be used only for development!
 ENABLE_LOGGER_ASSERTS = false
 --- Switch to enable debugging logs for the logger itself. SHOULD be used sparsely!
-ENABLE_LOGGER_LOGS = false
+ENABLE_LOGGER_LOGS = true
 
 --- Interval in milliseconds, at which the script timer fires events for logging.
 LOG_TIMER_INTERVAL = 320
 --- Interval in milliseconds, at which a new round of uploading offline logs is started.
 --- A good interval is [1; 10] minutes.<br/>
-UPLOAD_ROUND_INTERVAL = 150000 -- 2.5 * 60'000 ms = 2.5 minutes = 2m30s
+UPLOAD_ROUND_INTERVAL = 45000 -- 2.5 * 60'000 ms = 2.5 minutes = 2m30s
 
 --- Maximum logging list/queue size before dumping its content to the logger's log file.
 MAX_LOG_LIST_SIZE_BEFORE_DUMP = 150
@@ -66,6 +66,8 @@ MAX_LOG_LIST_SIZE_BEFORE_DUMP = 150
 ---   MAX_LOG_LINES_BANDWITDH - MAX_REF_LOG_LINES_BANDWITDH > MAX_UPLOAD_LOG_LINES_BANDWIDTH !
 MAX_LOG_LIST_SEND_LINES = 11
 
+--- Name of this
+LOGGER_SCRIPT_NAME = "logger.vsp"
 --- Log file name of this logger script.
 LOGGER_LOG_NAME = "logger.log"
 --- Backup log file name of this logger script.
@@ -356,7 +358,7 @@ end
 local function logDev(devMsg, errMsg)
   ListPushLeft({
     datetime     = dateISO(),
-    scriptName   = "logger.vsp",
+    scriptName   = LOGGER_SCRIPT_NAME,
     url          = URL_PAPERTRAIL,
     logType      = LogType.ONLINE,
     logSize      = 300,
@@ -378,7 +380,7 @@ if ENABLE_LOGGER_LOGS then
     if info then msg = string.format("%s:%d %s", info.name, info.currentline, msg) end
     ListPushLeft({
       datetime     = dateISO(),
-      scriptName   = "logger.vsp",
+      scriptName   = LOGGER_SCRIPT_NAME,
       url          = URL_PAPERTRAIL,
       logType      = LogType.ONLINE,
       logSize      = 300,
@@ -409,7 +411,7 @@ if ENABLE_LOGGER_LOGS then
       if info then msg = string.format("%s:%d %s", info.name, info.currentline, msg) end
       ListPushLeft({
         datetime     = dateISO(),
-        scriptName   = "logger.vsp",
+        scriptName   = LOGGER_SCRIPT_NAME,
         url          = URL_PAPERTRAIL,
         logType      = LogType.ONLINE,
         logSize      = 300,
@@ -493,7 +495,7 @@ end
 ---@param q table The queue
 ---@return number count The count of written bytes  
 function dumpQueue(q)
-  local f = getLogFile("logger.vsp", 500)
+  local f = getLogFile(LOGGER_SCRIPT_NAME, 500)
   local count = 0
 
   local message = ""
@@ -589,7 +591,7 @@ function sendFromQueue(q)
         writeMD(q)
       else
         ListPushLeft({
-          scriptName   = "logger.vsp",
+          scriptName   = LOGGER_SCRIPT_NAME,
           url          = URL_PAPERTRAIL,
           logType      = LogType.ONLINE,
           logSize      = 300,
@@ -600,7 +602,7 @@ function sendFromQueue(q)
       end
     else
       ListPushLeft({
-        scriptName   = "logger.vsp",
+        scriptName   = LOGGER_SCRIPT_NAME,
         url          = URL_PAPERTRAIL,
         logType      = LogType.ONLINE,
         logSize      = 300,
@@ -623,7 +625,7 @@ function handleQueue(q)
       assert(ok, resp)
       eraseQueue(q) -- empty the log queue
       ListPushLeft({
-        scriptName   = "logger.vsp",
+        scriptName   = LOGGER_SCRIPT_NAME,
         url          = URL_PAPERTRAIL,
         logType      = LogType.ONLINE,
         logSize      = 300,
@@ -642,7 +644,7 @@ function handleQueue(q)
         assert(ok, resp)
         if not ok then
           ListPushLeft({
-            scriptName   = "logger.vsp",
+            scriptName   = LOGGER_SCRIPT_NAME,
             url          = URL_PAPERTRAIL,
             logType      = LogType.ONLINE,
             logSize      = 300,
@@ -915,8 +917,8 @@ function formatMessage(message, fallback)
     outStr = "<" .. message.priority .. ">1 " .. message.datetime .. " " .. COMP_NAME .. POS_NAME ..
              " " .. scriptData .. " - - - " .. trace ..
              math.abs(message.qFirst) .. ":" .. math.abs(message.qLast) .. " " .. message.message .. "\n"
-  elseif message.scriptName == "logger.vsp" then
-    outStr = "logger.vsp" .. " " .. message.datetime .. " " .. message.message .. "\n"
+  elseif message.scriptName == LOGGER_SCRIPT_NAME then
+    outStr = LOGGER_SCRIPT_NAME .. " " .. message.datetime .. " " .. message.message .. "\n"
   else
     outStr = message.datetime .. " [" .. message.messageLevel .. "] >> " ..
              math.abs(message.qFirst) .. ":" .. math.abs(message.qLast) .. " " .. message.message .. "\n"

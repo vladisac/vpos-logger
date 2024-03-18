@@ -202,7 +202,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     end
   end
 
-  --- Used for `logLevel.Error` logs, which always sends the full message.<br/>
+  --- Used for `logLevel.Error` logs, which always send the full message.<br/>
   --- A code line number is prepended to the message, depending on `funLevel`s value:
   --- * if &lt; 1, nothing is prepended;
   --- * if 1, the line number of the calling function is used;
@@ -248,8 +248,8 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
       end
       self.error(message, f)
     else
-      local func = self[messageLevel]
-      if func then func(message, full_or_funLevel) end
+      local fun = self[messageLevel]
+      if fun then fun(message, full_or_funLevel) end
     end
   end
 
