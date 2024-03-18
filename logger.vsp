@@ -487,10 +487,12 @@ function eraseQueue(q)
   q.last = -1
 end
 
---- Dumps the queue to file.
+--- Dumps the queue to "logger.log" file.
+---
+--- RAISES an error if the log file can't be opened!
 ---@param q table The queue
+---@return number count The count of written bytes  
 function dumpQueue(q)
-  -- dump all to file logger.log
   local f = getLogFile("logger.vsp", 500)
   local count = 0
 
@@ -577,7 +579,8 @@ function sendFromQueue(q)
   message.qLast = q.last
   message.qFirst = q.first
   if ok then
-    local ok, err = pcall(sendMessage, message)
+    local err
+    ok, err = pcall(sendMessage, message)
     assert(ok, err)
     if ok then
       ok, err = pcall(ListPopRight, q)
@@ -617,7 +620,7 @@ function handleQueue(q)
     --showStatus("Q:"..tostring(qSize))
     if qSize > MAX_LOG_LIST_SIZE_BEFORE_DUMP then
       local ok, resp = pcall(dumpQueue, q)
-      assertAndOrLog(ok, resp)
+      assert(ok, resp)
       eraseQueue(q) -- empty the log queue
       ListPushLeft({
         scriptName   = "logger.vsp",
@@ -774,7 +777,10 @@ local function deleteLogFile(filePath, logErrors)
   return ok, errNo
 end
 
---- Creates or opens a log file having the script's base name and extension ".log".
+--- Creates or opens a log file for writing, having the script's base name and extension
+--- ".log".
+---
+--- RAISES an error if the log file can't be created or opened!
 ---@param scriptName string The script name
 ---@param logSizeInKB number? The maximum log size in kilobytes before creating a new file
 ---@return table # A table containing:
@@ -782,6 +788,7 @@ end
 --- * `size` function: gets the current log size
 --- * `scriptBaseName` string: the script base name
 function getLogFile(scriptName, logSizeInKB)
+  assertAndOrLog(scriptName)
   local fileSize = logSizeInKB or 300
   local scriptBaseName = get_base_file_name_from_name(scriptName)
   local fileName = tostring(scriptBaseName or "log") .. ".log"
@@ -831,7 +838,7 @@ function getLogFile(scriptName, logSizeInKB)
     -- write a new log file
     fh, errMsg = io.open(filePath, "w")
     if not fh then
-      logDev("Can't open file " .. fileName .. " in W mode", errMsg)
+      error("Can't open file " .. fileName .. " in W mode: " .. errMsg)
     elseif UploadingLogFile.fileName == fileName then -- reset the uploading log file
       UploadingLogFile = {}
     end
@@ -931,6 +938,8 @@ end
 
 --- Sends the message to be logged using sockets over the internet (online mode). If
 --- this fails or is explicitly requested, writes the message to a file (offline mode).
+---
+--- RAISES an error if falling back to file and the log file can't be opened!
 ---@param message table Message table containing the information to be logged
 function sendMessage(message)
   local ok, outStr = pcall(formatMessage, message)
@@ -959,9 +968,9 @@ function sendMessage(message)
     local scriptBaseName = get_base_file_name_from_name(message.scriptName)
     if not LogFile or LogFile.size() >= message.logSize or
        scriptBaseName ~= LogFile.scriptBaseName then
-      if LogFile then LogFile.fh:close() end
+      if LogFile then assertAndOrLog(LogFile.fh); LogFile.fh:close() end
       LogFile = getLogFile(message.scriptName, message.logSize)
-      logDebug("Got %s file with current size %.2f KB", message.scriptName, LogFile.size())
+      logDebug("Got %s.log file with current size %.2f KB", LogFile.scriptBaseName, LogFile.size())
     end
     LogFile.fh:write(outStr)
     LogFile.fh:flush()
