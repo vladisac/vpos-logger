@@ -908,6 +908,8 @@ function formatMessage(message, fallback)
     outStr = "<" .. message.priority .. ">1 " .. message.datetime .. " " .. COMP_NAME .. POS_NAME ..
              " " .. scriptData .. " - - - " .. trace ..
              math.abs(message.qFirst) .. ":" .. math.abs(message.qLast) .. " " .. message.message .. "\n"
+  elseif message.scriptName == "logger.vsp" then
+    outStr = "logger.vsp" .. " " .. message.datetime .. " " .. message.message .. "\n"
   else
     outStr = message.datetime .. " [" .. message.messageLevel .. "] >> " ..
              math.abs(message.qFirst) .. ":" .. math.abs(message.qLast) .. " " .. message.message .. "\n"
