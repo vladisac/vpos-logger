@@ -1,8 +1,8 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.2
+--!ScriptVersion: 2.3
 -- Script name: logger.vsp
 -- Author: Vlad Isac, R. Arjocu
--- Date: 02/2024
+-- Date: 03/2024
 -- Description: use metadata and queue for sending log messages to url (e.g. http://logs6.papertrailapp.com:17732 )
 
 
@@ -47,13 +47,13 @@ POS_NAME = ""
 --- Switch to enable asserting logger code. SHOULD be used only for development!
 ENABLE_LOGGER_ASSERTS = false
 --- Switch to enable debugging logs for the logger itself. SHOULD be used sparsely!
-ENABLE_LOGGER_LOGS = false
+ENABLE_LOGGER_LOGS = true
 
 --- Interval in milliseconds, at which the script timer fires events for logging.
 LOG_TIMER_INTERVAL = 320
 --- Interval in milliseconds, at which a new round of uploading offline logs is started.
 --- A good interval is [1; 10] minutes.<br/>
-UPLOAD_ROUND_INTERVAL = 150000 -- 2.5 * 60'000 ms = 2.5 minutes = 2m30s
+UPLOAD_ROUND_INTERVAL = 45000 -- 2.5 * 60'000 ms = 2.5 minutes = 2m30s
 
 --- Maximum logging list/queue size before dumping its content to the logger's log file.
 MAX_LOG_LIST_SIZE_BEFORE_DUMP = 150
@@ -66,6 +66,8 @@ MAX_LOG_LIST_SIZE_BEFORE_DUMP = 150
 ---   MAX_LOG_LINES_BANDWITDH - MAX_REF_LOG_LINES_BANDWITDH > MAX_UPLOAD_LOG_LINES_BANDWIDTH !
 MAX_LOG_LIST_SEND_LINES = 11
 
+--- Name of this
+LOGGER_SCRIPT_NAME = "logger.vsp"
 --- Log file name of this logger script.
 LOGGER_LOG_NAME = "logger.log"
 --- Backup log file name of this logger script.
@@ -356,7 +358,7 @@ end
 local function logDev(devMsg, errMsg)
   ListPushLeft({
     datetime     = dateISO(),
-    scriptName   = "logger.vsp",
+    scriptName   = LOGGER_SCRIPT_NAME,
     url          = URL_PAPERTRAIL,
     logType      = LogType.ONLINE,
     logSize      = 300,
@@ -378,7 +380,7 @@ if ENABLE_LOGGER_LOGS then
     if info then msg = string.format("%s:%d %s", info.name, info.currentline, msg) end
     ListPushLeft({
       datetime     = dateISO(),
-      scriptName   = "logger.vsp",
+      scriptName   = LOGGER_SCRIPT_NAME,
       url          = URL_PAPERTRAIL,
       logType      = LogType.ONLINE,
       logSize      = 300,
@@ -409,7 +411,7 @@ if ENABLE_LOGGER_LOGS then
       if info then msg = string.format("%s:%d %s", info.name, info.currentline, msg) end
       ListPushLeft({
         datetime     = dateISO(),
-        scriptName   = "logger.vsp",
+        scriptName   = LOGGER_SCRIPT_NAME,
         url          = URL_PAPERTRAIL,
         logType      = LogType.ONLINE,
         logSize      = 300,
@@ -487,29 +489,40 @@ function eraseQueue(q)
   q.last = -1
 end
 
---- Dumps the queue to file.
+--- Dumps the queue to "logger.log" file.
+---
+--- RAISES an error if the log file can't be opened!
 ---@param q table The queue
+---@return number count The count of written bytes  
 function dumpQueue(q)
-  -- dump all to file logger.log
-  local f = getLogFile("logger.vsp", 500)
-  local message = ""
-  local size = 0
+  local f = getLogFile(LOGGER_SCRIPT_NAME, 500)
   local count = 0
-  q.first = nil
-  q.last = nil
-  for k, v in pairs(q) do
-      message = message .. v.scriptName .. " " .. v.datetime .. " " .. v.message .. "\n"
-      size = size + #message
+
+  local message = ""
+  local size
+  local first, last = q.first, q.last
+  for k = last, first, -1 do
+    local v = q[k]
+    if v and ((v.scriptName and v.datetime) or v.message) then
+      message = message ..
+                (v.scriptName or "") .. " " .. (v.datetime or "") .. " " .. (v.message or "") .. "\n"
+      size = #message
       if size > 5000 then
         f.fh:write(message)
         f.fh:flush()
         count = count + size
         message = ""
-        size = 0
       end
+    end
   end
-  f.fh:close()
+  size = #message
+  if size > 0 then
+    f.fh:write(message)
+    f.fh:flush()
+    count = count + size
+  end
 
+  f.fh:close()
   return count
 end
 
@@ -568,7 +581,8 @@ function sendFromQueue(q)
   message.qLast = q.last
   message.qFirst = q.first
   if ok then
-    local ok, err = pcall(sendMessage, message)
+    local err
+    ok, err = pcall(sendMessage, message)
     assert(ok, err)
     if ok then
       ok, err = pcall(ListPopRight, q)
@@ -577,7 +591,7 @@ function sendFromQueue(q)
         writeMD(q)
       else
         ListPushLeft({
-          scriptName   = "logger.vsp",
+          scriptName   = LOGGER_SCRIPT_NAME,
           url          = URL_PAPERTRAIL,
           logType      = LogType.ONLINE,
           logSize      = 300,
@@ -588,7 +602,7 @@ function sendFromQueue(q)
       end
     else
       ListPushLeft({
-        scriptName   = "logger.vsp",
+        scriptName   = LOGGER_SCRIPT_NAME,
         url          = URL_PAPERTRAIL,
         logType      = LogType.ONLINE,
         logSize      = 300,
@@ -608,10 +622,10 @@ function handleQueue(q)
     --showStatus("Q:"..tostring(qSize))
     if qSize > MAX_LOG_LIST_SIZE_BEFORE_DUMP then
       local ok, resp = pcall(dumpQueue, q)
-      assertAndOrLog(ok, resp)
+      assert(ok, resp)
       eraseQueue(q) -- empty the log queue
       ListPushLeft({
-        scriptName   = "logger.vsp",
+        scriptName   = LOGGER_SCRIPT_NAME,
         url          = URL_PAPERTRAIL,
         logType      = LogType.ONLINE,
         logSize      = 300,
@@ -630,7 +644,7 @@ function handleQueue(q)
         assert(ok, resp)
         if not ok then
           ListPushLeft({
-            scriptName   = "logger.vsp",
+            scriptName   = LOGGER_SCRIPT_NAME,
             url          = URL_PAPERTRAIL,
             logType      = LogType.ONLINE,
             logSize      = 300,
@@ -765,7 +779,10 @@ local function deleteLogFile(filePath, logErrors)
   return ok, errNo
 end
 
---- Creates or opens a log file having the script's base name and extension ".log".
+--- Creates or opens a log file for writing, having the script's base name and extension
+--- ".log".
+---
+--- RAISES an error if the log file can't be created or opened!
 ---@param scriptName string The script name
 ---@param logSizeInKB number? The maximum log size in kilobytes before creating a new file
 ---@return table # A table containing:
@@ -773,6 +790,7 @@ end
 --- * `size` function: gets the current log size
 --- * `scriptBaseName` string: the script base name
 function getLogFile(scriptName, logSizeInKB)
+  assertAndOrLog(scriptName)
   local fileSize = logSizeInKB or 300
   local scriptBaseName = get_base_file_name_from_name(scriptName)
   local fileName = tostring(scriptBaseName or "log") .. ".log"
@@ -822,7 +840,7 @@ function getLogFile(scriptName, logSizeInKB)
     -- write a new log file
     fh, errMsg = io.open(filePath, "w")
     if not fh then
-      logDev("Can't open file " .. fileName .. " in W mode", errMsg)
+      error("Can't open file " .. fileName .. " in W mode: " .. errMsg)
     elseif UploadingLogFile.fileName == fileName then -- reset the uploading log file
       UploadingLogFile = {}
     end
@@ -899,6 +917,8 @@ function formatMessage(message, fallback)
     outStr = "<" .. message.priority .. ">1 " .. message.datetime .. " " .. COMP_NAME .. POS_NAME ..
              " " .. scriptData .. " - - - " .. trace ..
              math.abs(message.qFirst) .. ":" .. math.abs(message.qLast) .. " " .. message.message .. "\n"
+  elseif message.scriptName == LOGGER_SCRIPT_NAME then
+    outStr = LOGGER_SCRIPT_NAME .. " " .. message.datetime .. " " .. message.message .. "\n"
   else
     outStr = message.datetime .. " [" .. message.messageLevel .. "] >> " ..
              math.abs(message.qFirst) .. ":" .. math.abs(message.qLast) .. " " .. message.message .. "\n"
@@ -920,6 +940,8 @@ end
 
 --- Sends the message to be logged using sockets over the internet (online mode). If
 --- this fails or is explicitly requested, writes the message to a file (offline mode).
+---
+--- RAISES an error if falling back to file and the log file can't be opened!
 ---@param message table Message table containing the information to be logged
 function sendMessage(message)
   local ok, outStr = pcall(formatMessage, message)
@@ -948,9 +970,9 @@ function sendMessage(message)
     local scriptBaseName = get_base_file_name_from_name(message.scriptName)
     if not LogFile or LogFile.size() >= message.logSize or
        scriptBaseName ~= LogFile.scriptBaseName then
-      if LogFile then LogFile.fh:close() end
+      if LogFile then assertAndOrLog(LogFile.fh); LogFile.fh:close() end
       LogFile = getLogFile(message.scriptName, message.logSize)
-      logDebug("Got %s file with current size %.2f KB", message.scriptName, LogFile.size())
+      logDebug("Got %s.log file with current size %.2f KB", LogFile.scriptBaseName, LogFile.size())
     end
     LogFile.fh:write(outStr)
     LogFile.fh:flush()
@@ -1403,7 +1425,7 @@ local function initLogList()
   end
 end
 
-local function initUploadingOfflineLogsSupport()
+local function initUploadingOfflineLogs()
   local vposVersion = vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion)
   local curVersionNo = convertVersionStringToNumber(vposVersion)
   local minVersionNo = convertVersionStringToNumber(MIN_VPOS_VERSION_FOR_UPLOADING_LOGS)
@@ -1422,7 +1444,7 @@ end
 
 initSettings()
 initLogList()
-initUploadingOfflineLogsSupport()
+initUploadingOfflineLogs()
 
 vpos.script.registerAsInterScript()
 
