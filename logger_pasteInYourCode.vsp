@@ -161,7 +161,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     end
   end
 
-  --- Logs a trace message.
+  --- Logs a trace message, possibly truncating the message.
   ---@param message string? The message to be logged
   ---@param full boolean? Flag to send the full message if `true`, otherwise the possibly truncated message
   function self.trace(message, full)
@@ -181,7 +181,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if level == logLevel.Trace then
       local info = debug.getinfo(2, "nl")
       local msg = (messageFormat and string.format(messageFormat, ...)) or ""
-      if info then msg = string.format("%d:%s %s", info.currentline, info.name, msg) end
+      if info then msg = string.format("%d:%s: %s", info.currentline, info.name, msg) end
       local now = vpos.datetime.DateTime():getUnixTime() or ""
       logTab.message      = now .. "@ " .. msg
       logTab.messageLevel = logLevel.Trace
@@ -190,7 +190,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     end
   end
 
-  --- Logs a debug message.
+  --- Logs a debug message, possibly truncating the message.
   ---@param message string? The message to be logged
   ---@param full boolean? Flag to send the full message if `true`, otherwise the possibly truncated message
   function self.debug(message, full)
@@ -209,7 +209,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if level == logLevel.Trace or level == logLevel.Debug then
       local info = debug.getinfo(2, "nl")
       local msg = (messageFormat and string.format(messageFormat, ...)) or ""
-      if info then msg = string.format("%d:%s %s", info.currentline, info.name, msg) end
+      if info then msg = string.format("%d:%s: %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Debug
       logTab.priority     = Priority.USER_DEBUG
@@ -217,7 +217,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     end
   end
 
-  --- Logs an informational message.
+  --- Logs an informational message, possibly truncating the message.
   ---@param message string? The message to be logged
   ---@param full boolean? Flag to send the full message if `true`, otherwise the possibly truncated message
   function self.info(message, full)
@@ -236,7 +236,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info then
       local info = debug.getinfo(2, "nl")
       local msg = (messageFormat and string.format(messageFormat, ...)) or ""
-      if info then msg = string.format("%d:%s %s", info.currentline, info.name, msg) end
+      if info then msg = string.format("%d:%s: %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Info
       logTab.priority     = Priority.USER_INFO
@@ -244,7 +244,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     end
   end
 
-  --- Logs a warning message.
+  --- Logs a warning message, possibly truncating the message.
   ---@param message string? The message to be logged
   ---@param full boolean? Flag to send the full message if `true`, otherwise the possibly truncated message
   function self.warn(message, full)
@@ -265,7 +265,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
        level == logLevel.Warn then
       local info = debug.getinfo(2, "nl")
       local msg = (messageFormat and string.format(messageFormat, ...)) or ""
-      if info then msg = string.format("%d:%s %s", info.currentline, info.name, msg) end
+      if info then msg = string.format("%d:%s: %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Warn
       logTab.priority     = Priority.USER_WARN
@@ -276,7 +276,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   --- Logs an error message, containg the calling function line (by default) and always
   --- sending it fully.
   ---@param message string? The message to be logged
-  ---@param forgoFunLine boolean? Flag to forgo prepanding the function line if `true`; defaults to `false`
+  ---@param forgoFunLine boolean? Flag to forgo prepending the function line if `true`; defaults to `false`
   function self.error(message, forgoFunLine)
     if level == logLevel.Trace or level == logLevel.Debug or level == logLevel.Info or
        level == logLevel.Warn  or level == logLevel.Error then
@@ -300,7 +300,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
        level == logLevel.Warn  or level == logLevel.Error then
       local info = debug.getinfo(2, "nl")
       local msg = (messageFormat and string.format(messageFormat, ...)) or ""
-      if info then msg = string.format("%d:%s %s", info.currentline, info.name, msg) end
+      if info then msg = string.format("%d:%s: %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Error
       logTab.priority     = Priority.USER_ERROR
@@ -323,7 +323,8 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if fun then fun(message, full_or_forgoFunLine) end
   end
   --- Logs an extended message with the given logging level, containing the calling function
-  --- name and line and a string formatted with the given format and vararg.
+  --- name and line and a string formatted with the given format and vararg, and possibly
+  --- truncating the non-error message.
   ---@param messageLevel logLevel The message logging level
   ---@param messageFormat string? The message format
   ---@param ... any The vararg
@@ -332,8 +333,8 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if fun then
       local info = debug.getinfo(2, "nl")
       local msg = (messageFormat and string.format(messageFormat, ...)) or ""
-      if info then msg = string.format("%d:%s %s", info.currentline, info.name, msg) end
-      -- Forgos prepanding the function line for error messages, or possibly truncates the
+      if info then msg = string.format("%d:%s: %s", info.currentline, info.name, msg) end
+      -- Forgos prepending the function line for error messages, or possibly truncates the
       -- other messages: <==> `(messageLevel == "error" and true) or false`
       fun(msg, messageLevel == logLevel.Error)
     end
