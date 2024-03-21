@@ -146,11 +146,12 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   --- Logs information about the script.
   ---@param settings string? Additional script settings to be logged if non-`nil`
   function self.scriptInfo(settings)
-    logTab.message      = string.format("====== START ======== script:%s __ version:%s __ update:%s __ pv:%s __ serialNo:%s __ ip:%s",
-                                        logTab.scriptName, logTab.scriptVersion, logTab.scriptUpdate,
-                                        vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion),
-                                        vpos.getSystemInfo(vpos.SystemInfo.Serial),
-                                        vpos.getSystemInfo(vpos.SystemInfo.NetworkAddress))
+    logTab.message      = string.format(
+      "====== START ======== script:%s __ version:%s __ update:%s __ pv:%s __ serialNo:%s __ ip:%s",
+      logTab.scriptName, logTab.scriptVersion, logTab.scriptUpdate,
+      vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion),
+      vpos.getSystemInfo(vpos.SystemInfo.Serial),
+      vpos.getSystemInfo(vpos.SystemInfo.NetworkAddress))
     logTab.messageLevel = logLevel.Info
     logTab.priority     = Priority.USER_INFO
     logData(logTab)
@@ -368,12 +369,7 @@ function readIni()
   local scriptVersion = tostring(vpos.tables.Table(806):getData(scriptName, 15) or 0)
   local posName       = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
   local update        = vpos.tables.Table(806):getData(scriptName, 6)
-  local scriptUpdate
-  if type(update) == "vec.types.Time" then
-    scriptUpdate = tostring(update)
-  else
-    scriptUpdate = "plsUpdate VPOS"
-  end
+  local scriptUpdate  = (type(update) == "vec.types.Time" and tostring(update)) or "plsUpdate VPOS"
 
   if LOG_LEVEL == logLevel.Off then
     -- create a mock "object" with no functionality
