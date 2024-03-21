@@ -372,12 +372,12 @@ local logDebug
 if ENABLE_LOGGER_LOGS then
   --- Logs a debug message for the logger, containing the calling function name and
   --- line and a string formatted with the given format and vararg.
-  ---@param msgFormat string The message format
+  ---@param msgFormat string? The message format
   ---@param ... any The vararg
   logDebug = function(msgFormat, ...)
     local info = debug.getinfo(2, "nl")
-    local msg = string.format(msgFormat, ...)
-    if info then msg = string.format("%s:%d %s", info.name, info.currentline, msg) end
+    local msg = (msgFormat and string.format(msgFormat, ...)) or ""
+    if info then msg = string.format("%d:%s: %s", info.currentline, info.name, msg) end
     ListPushLeft({
       datetime     = dateISO(),
       scriptName   = LOGGER_SCRIPT_NAME,
@@ -408,7 +408,7 @@ if ENABLE_LOGGER_LOGS then
     if not condition then
       local info = debug.getinfo(2, "nl")
       local msg = errMsg or "assertion failed"
-      if info then msg = string.format("%s:%d %s", info.name, info.currentline, msg) end
+      if info then msg = string.format("%d:%s: %s", info.currentline, info.name, msg) end
       ListPushLeft({
         datetime     = dateISO(),
         scriptName   = LOGGER_SCRIPT_NAME,
