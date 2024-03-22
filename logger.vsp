@@ -47,13 +47,13 @@ POS_NAME = ""
 --- Switch to enable asserting logger code. SHOULD be used only for development!
 ENABLE_LOGGER_ASSERTS = false
 --- Switch to enable debugging logs for the logger itself. SHOULD be used sparsely!
-ENABLE_LOGGER_LOGS = true
+ENABLE_LOGGER_LOGS = false
 
 --- Interval in milliseconds, at which the script timer fires events for logging.
 LOG_TIMER_INTERVAL = 320
 --- Interval in milliseconds, at which a new round of uploading offline logs is started.
 --- A good interval is [1; 10] minutes.<br/>
-UPLOAD_ROUND_INTERVAL = 45000 -- 2.5 * 60'000 ms = 2.5 minutes = 2m30s
+UPLOAD_ROUND_INTERVAL = 150000 -- 2.5 * 60'000 ms = 2.5 minutes = 2m30s
 
 --- Maximum logging list/queue size before dumping its content to the logger's log file.
 MAX_LOG_LIST_SIZE_BEFORE_DUMP = 150
@@ -1366,7 +1366,6 @@ local function deleteFullyProcessedLogFileAndUploadingLogFile()
 end
 
 function uploadOfflineLogs()
-  --TODO add: offline setting check
   if not isUploadRound() then return end
 
   local maxUploadLogLines = determineMaxLogLinesForUploadRound()
