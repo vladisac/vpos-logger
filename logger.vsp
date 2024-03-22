@@ -927,7 +927,7 @@ function formatMessage(message, fallback)
   return outStr
 end
 
-local function createOrRecreateLogSocket(url)
+local function renewLogSocket(url)
   -- retry to create the socket only after several logs were locally written
   if (not LogSocket and (OfflineCounter == 0 or OfflineCounter >= 9)) or OfflineCounter >= 9 then
     local logUrl = url:gsub("http://", "")
@@ -953,7 +953,7 @@ function sendMessage(message)
 
   local fallbackToFile = false
   if message.logType == LogType.ONLINE and message.url then
-    createOrRecreateLogSocket(message.url)
+    renewLogSocket(message.url)
 
     local sent = LogSocket and LogSocket:write(outStr)
     if not sent then
@@ -1011,7 +1011,7 @@ local function determineMaxLogLinesForUploadRound()
 end
 
 local function isLoggerConnectedOnline()
-  createOrRecreateLogSocket(URL_PAPERTRAIL)
+  renewLogSocket(URL_PAPERTRAIL)
   if not LogSocket then return false end
   return LogSocket:isOpen() and LogSocket:isConnected()
 end
