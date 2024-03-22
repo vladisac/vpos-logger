@@ -58,13 +58,26 @@ UPLOAD_ROUND_INTERVAL = 150000 -- 2.5 * 60'000 ms = 2.5 minutes = 2m30s
 --- Maximum logging list/queue size before dumping its content to the logger's log file.
 MAX_LOG_LIST_SIZE_BEFORE_DUMP = 150
 --- Maximum log lines / message strings to send per send round (a log timer interval).<br/>
---- The maximum "log lines bandwidth" is:<br/>
+--- The maximum "log lines bandwidth" per hour is:<br/>
 ---   3'600'000 ms / LOG_TIMER_INTERVAL * MAX_LOG_LIST_SEND_LINES;<br/>
 --- reference value: MAX_REF_LOG_LINES_BANDWITDH = 3'600'000 / 300 * 10 = 120'000 logs/hour;<br/>
 --- current value:   MAX_LOG_LINES_BANDWITDH     = 3'600'000 / 320 * 11 = 123'750 logs/hour.<br/>
 ---NOTE: Adjust the (current) values so that the following inequality holds true
 ---   MAX_LOG_LINES_BANDWITDH - MAX_REF_LOG_LINES_BANDWITDH > MAX_UPLOAD_LOG_LINES_BANDWIDTH !
 MAX_LOG_LIST_SEND_LINES = 11
+--- Count of failed online sends with fallbacks to file, after which the log socket is
+--- renewed.<br/>
+--- The minimum "log socket offline renew interval" in milliseconds is:<br/>
+---   LOG_TIMER_INTERVAL / MAX_LOG_LIST_SEND_LINES * (OFFLINE_COUNT_FOR_SOCKET_RENEWING + 1);<br/>
+--- current value: LOG_SOCKET_OFFLINE_RENEW_INTERVAL = 320 / 11 * 10 ~= 291 ms.
+OFFLINE_COUNT_FOR_SOCKET_RENEWING = 10 - 1
+--- Count of truly or apparently successful online sends, after which the log socket is
+--- renewed.<br/>
+--- The minimum "log socket online renew interval" in milliseconds is:<br/>
+---   LOG_TIMER_INTERVAL / MAX_LOG_LIST_SEND_LINES * (ONLINE_COUNT_FOR_SOCKET_RENEWING + 1);<br/>
+--- current value: LOG_SOCKET_OFFLINE_RENEW_INTERVAL = 320 / 11 * 25 ~= 727 ms.<br/>
+---NOTE: Should be > OFFLINE_COUNT_FOR_SOCKET_RENEWING !
+ONLINE_COUNT_FOR_SOCKET_RENEWING = 25 - 1
 
 --- Name of this
 LOGGER_SCRIPT_NAME = "logger.vsp"
@@ -133,8 +146,10 @@ LogFile = nil
 
 --- The socket for sending the log lines/messages online.
 LogSocket = nil
---- Count the number of logging fallbacks to file.
+--- Count the number of failed online sends with fallbacks to file.
 OfflineCounter = 0
+--- Count the number of truly or apparently successful online sends.
+OnlineCounter = 0
 
 --- The structured information about the current uploading offline log file.
 UploadingLogFile = {}
@@ -547,6 +562,7 @@ end
 ---@param message table The structured information about the log message
 function ListPushLeft(message)
   if not message then return end
+
   local first = (LogList and LogList.first or 0) - 1
   message.datetime = message.datetime or dateISO()
   message.priority = message.priority or Priority.MAIL_INFO
@@ -927,14 +943,36 @@ function formatMessage(message, fallback)
   return outStr
 end
 
+--- Renews the log socket after several logs were written to file or succesfully sent
+--- online.
+---@param url string The URL to the online logging location
 local function renewLogSocket(url)
-  -- retry to create the socket only after several logs were locally written
-  if (not LogSocket and (OfflineCounter == 0 or OfflineCounter >= 9)) or OfflineCounter >= 9 then
+  local wasSocketValid = (LogSocket ~= nil)
+  local offlineCntr, onlineCntr = OfflineCounter, OnlineCounter
+
+  if (not LogSocket and offlineCntr == 0) or
+     offlineCntr >= OFFLINE_COUNT_FOR_SOCKET_RENEWING or
+     onlineCntr  >= ONLINE_COUNT_FOR_SOCKET_RENEWING then
     local logUrl = url:gsub("http://", "")
     local address, port = logUrl:match("(.-):(%d+)")
     assertAndOrLog(address and port)
     LogSocket = vpos.communication.Socket(address, port, 3000)
     OfflineCounter = 0
+    OnlineCounter  = 0
+  end
+
+  if (wasSocketValid and not LogSocket) and
+     offlineCntr <  OFFLINE_COUNT_FOR_SOCKET_RENEWING and
+     onlineCntr  >= ONLINE_COUNT_FOR_SOCKET_RENEWING and
+     not isQueueEmpty(LogList) then
+    local qMax, qCur = math.abs(LogList.first), math.abs(LogList.last)
+    local qPrev = qCur - ONLINE_COUNT_FOR_SOCKET_RENEWING - 1
+    if qPrev < 1 then qPrev = 1 end
+    if qCur > qPrev then
+      logDev(string.format(
+        "Possibly lost %d messages @ Q %d-%d:%d ", qCur - qPrev, qPrev, qCur - 1, qMax),
+        "Connection went down unnoticed")
+    end
   end
 end
 
@@ -956,7 +994,9 @@ function sendMessage(message)
     renewLogSocket(message.url)
 
     local sent = LogSocket and LogSocket:write(outStr)
-    if not sent then
+    if sent then
+      OnlineCounter = OnlineCounter + 1
+    else
       fallbackToFile = true
       OfflineCounter = OfflineCounter + 1
       ok, outStr = pcall(formatMessage, message, true)
@@ -1012,8 +1052,7 @@ end
 
 local function isLoggerConnectedOnline()
   renewLogSocket(URL_PAPERTRAIL)
-  if not LogSocket then return false end
-  return LogSocket:isOpen() and LogSocket:isConnected()
+  return LogSocket and LogSocket:isOpen() and LogSocket:isConnected()
 end
 
 local function readIniSettingsForUploadingOfflineLogs()
