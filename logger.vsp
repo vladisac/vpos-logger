@@ -578,7 +578,7 @@ end
 function sendFromQueue(q)
   local ok, message = pcall(ListGetRight, q)
   assertAndOrLog(ok, message)
-  message.qLast = q.last
+  message.qLast  = q.last
   message.qFirst = q.first
   if ok then
     local err
@@ -881,23 +881,23 @@ end
 ---@return table # A table with all of the message string parts:
 ---  * `sendingIsoDate` string: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
 ---  * `messageLevel` string: the log level
----  * `qFirst`, `qLast` integer: the original queue boundary indexes
+---  * `qLast`, `qFirst` integer: the original queue boundary indexes
 ---  * `messageBody` string: the actual message content
 local function decomposeOfflineMessageString(str)
   assertAndOrLog(str)
 
-  local sendingIsoDate, messageLevel, qFirstStr, qLastStr, messageBody =
+  local sendingIsoDate, messageLevel, qLastStr, qFirstStr, messageBody =
     str:match("^(%S+) %[(%S+)%] >> ([+-]?%d+):([+-]?%d+) (.-)\r?\n$")
   if not sendingIsoDate then error("Can't decompose offline message string") end
 
-  local qFirst = tonumber(qFirstStr)
-  if not qFirst then error("Can't convert queue first index to number") end
   local qLast = tonumber(qLastStr)
   if not qLast then error("Can't convert queue last index to number") end
+  local qFirst = tonumber(qFirstStr)
+  if not qFirst then error("Can't convert queue first index to number") end
 
   return {
     sendingIsoDate = sendingIsoDate, messageLevel = messageLevel,
-    qFirst = qFirst, qLast = qLast, messageBody = messageBody,
+    qLast = qLast, qFirst = qFirst, messageBody = messageBody,
   }
 end
 
