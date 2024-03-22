@@ -916,12 +916,12 @@ function formatMessage(message, fallback)
 
     outStr = "<" .. message.priority .. ">1 " .. message.datetime .. " " .. COMP_NAME .. POS_NAME ..
              " " .. scriptData .. " - - - " .. trace ..
-             math.abs(message.qFirst) .. ":" .. math.abs(message.qLast) .. " " .. message.message .. "\n"
+             math.abs(message.qLast) .. ":" .. math.abs(message.qFirst) .. " " .. message.message .. "\n"
   elseif message.scriptName == LOGGER_SCRIPT_NAME then
     outStr = LOGGER_SCRIPT_NAME .. " " .. message.datetime .. " " .. message.message .. "\n"
   else
     outStr = message.datetime .. " [" .. message.messageLevel .. "] >> " ..
-             math.abs(message.qFirst) .. ":" .. math.abs(message.qLast) .. " " .. message.message .. "\n"
+             math.abs(message.qLast) .. ":" .. math.abs(message.qFirst) .. " " .. message.message .. "\n"
   end
 
   return outStr
