@@ -383,7 +383,6 @@ local function logDev(devMsg, errMsg)
   })
 end
 
-local logDebug
 if ENABLE_LOGGER_LOGS then
   --- Logs a debug message for the logger, containing the calling function name and
   --- line and a string formatted with the given format and vararg.
@@ -571,7 +570,7 @@ end
 --- * `fh` userdata/file*: the log file handler
 --- * `size` function: gets the current log size
 --- * `scriptBaseName` string: the script base name
-function getLogFile(scriptName, logSizeInKB)
+local function getLogFile(scriptName, logSizeInKB)
   assertAndOrLog(scriptName)
   local fileSize = logSizeInKB or 300
   local scriptBaseName = get_base_file_name_from_name(scriptName)
@@ -721,7 +720,7 @@ end
 --- @param message table Message containing the needed information
 --- @param fallback boolean `true` if called due to fallback
 --- @return string outStr Log message to send
-function formatMessage(message, fallback)
+local function formatMessage(message, fallback)
   local outStr = ""
 
   if message.logType == LogType.ONLINE and not fallback then
@@ -781,7 +780,7 @@ end
 ---
 --- RAISES an error if falling back to file and the log file can't be opened!
 ---@param message table Message table containing the information to be logged
-function sendMessage(message)
+local function sendMessage(message)
   local ok, outStr = pcall(formatMessage, message)
   assert(ok, outStr)
   if not ok then
