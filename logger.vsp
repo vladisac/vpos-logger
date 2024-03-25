@@ -443,6 +443,197 @@ end
 --#endregion **********
 
 
+--#region File functions **********
+
+--- Gets the file extension without the leading `.` dot character, from the file
+--- name (without a path).<br/>
+--- NOTE: Only letters are considered as an extension!
+---@param fileName string? The file name (without a path)
+---@return string? # The file extension on successful extraction, otherwise `nil`
+local function get_file_extension_from_name(fileName)
+  if not fileName then return nil end
+
+  local i, _ = fileName:find("%.%a*$")
+  return ((not i or (i == 1)) and "") or fileName:sub(i + 1)
+end
+
+--- Gets the base file name, namely the file name without the extension, from the
+--- file name (without a path).<br/>
+--- NOTE: Only letters are considered as an extension!
+---@param fileName string? The file name (without a path)
+---@return string? # The base file name on successful extraction, otherwise `nil`
+local function get_base_file_name_from_name(fileName)
+  if not fileName then return nil end
+
+  local i, _ = fileName:find("%.%a*$")
+  return ((not i or (i == 1)) and fileName) or fileName:sub(1, i - 1)
+end
+
+local function removeLogBackupSuffixFromBaseFileName(baseFileName)
+  if not baseFileName then return nil end
+
+  local i, _ = baseFileName:find("%.1$")
+  return ((not i or (i == 1)) and baseFileName) or baseFileName:sub(1, i - 1)
+end
+
+local function getBaseFileNameWithoutLogBackupSuffixFromName(fileName)
+  if not fileName then return nil end
+
+  local baseFileName = get_base_file_name_from_name(fileName)
+  return removeLogBackupSuffixFromBaseFileName(baseFileName)
+end
+
+--- Constants defining which file hosts are allowed.<br/>
+--NOTE: defining this here, because it's exclusively used in the next function
+local AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = false}
+
+--- Checks for the existance of the file.
+---@param fn string The file name/path to be checked
+---@param host string? The file host; defaults to "VPOS" if `nil` and a host can't be extracted from `fn`
+---@return boolean `true` if the file exists, otherwise `false` <br/>
+---@see AllowedFileHosts
+local function file_exists(fn, host)
+  if not fn then return false end
+
+  local i, j = string.find(fn, ":", 1, true)
+  local fileHost
+  if i then
+    fileHost = fn:sub(1, j-1)
+    fn = fn:gsub("VPOS:", "")
+    fn = fn:gsub("FILE:", "")
+  end
+
+  host = host or fileHost or "VPOS"
+  if not AllowedFileHosts[host] then return false end
+
+  local files = vpos.file.getFileList(host)
+  for _, name in pairs(files) do
+    if fn == name then
+      return true
+    end
+  end
+  return false
+end
+
+--- Moves/Renames a file.
+---@param fn1 string The source file name/path
+---@param fn2 string The destination file name/path
+---@param overwrite boolean Flag to overwrite an existing destination file
+---@return boolean # `true` if moving/renaming succeeded, otherwise `false`
+---@return string|number? # `nil` on success, otherwise an error message or number
+local function file_rename(fn1, fn2, overwrite)
+  if not file_exists(fn1) then
+    return false, string.format("Source file %s is missing!", fn1 or "")
+  end
+  if file_exists(fn2) and not overwrite then
+    return false, string.format("Destination file %s already exists!", fn2)
+  end
+
+  local ok, err = vpos.renameFile(fn1, fn2)
+  -- if the error is DestinationFileExists and we have to overwrite
+  if not ok and err == 1 and overwrite then
+    ok, err = vpos.file.delete(fn2)
+    ok, err = vpos.renameFile(fn1, fn2)
+    return ok, err
+  end
+  return ok, err
+end
+
+--- Gets the file size as a script, by interogating VPOS.
+---@param filePath string? The file path
+---@return number # The file size on success, otherwise `-1`
+local function get_file_size_as_script(filePath)
+  if not filePath then return -1 end
+
+  local fileAsScript = vpos.script.Script(filePath)
+  return (fileAsScript and tonumber(fileAsScript:getSize())) or -1
+end
+
+--- Delete the given log file.
+---@param filePath string The log file path
+---@param logErrors boolean Flag for logging any encountered error
+---@return boolean ok `true` if the file deletion succeeded, otherwise `false`
+---@return number errNo A `vpos.file.Error` number
+local function deleteLogFile(filePath, logErrors)
+  assertAndOrLog(filePath)
+  local ok, errNo = vpos.file.delete(filePath)
+  if logErrors and not ok then logDev("Can't delete file " .. filePath, errNo) end
+  return ok, errNo
+end
+
+--- Creates or opens a log file for writing, having the script's base name and extension
+--- ".log".
+---
+--- RAISES an error if the log file can't be created or opened!
+---@param scriptName string The script name
+---@param logSizeInKB number? The maximum log size in kilobytes before creating a new file
+---@return table # A table containing:
+--- * `fh` userdata/file*: the log file handler
+--- * `size` function: gets the current log size
+--- * `scriptBaseName` string: the script base name
+function getLogFile(scriptName, logSizeInKB)
+  assertAndOrLog(scriptName)
+  local fileSize = logSizeInKB or 300
+  local scriptBaseName = get_base_file_name_from_name(scriptName)
+  local fileName = tostring(scriptBaseName or "log") .. ".log"
+  local filePath = "VPOS:" .. fileName
+
+  local logSize = function()
+      local logSize = get_file_size_as_script(filePath)
+      return (logSize <= 0 and 0) or (logSize / 1000)
+    end
+
+  local curSize = logSize()
+  local fh, errMsg, devMsg
+  if curSize < fileSize then
+    fh, errMsg = io.open(filePath, "a+")
+    assert(fh, errMsg)
+    if not fh then logDev("Can't open file " .. fileName .. " in A+ mode", errMsg) end
+  end
+   -- roll over the log file
+  if not fh then -- an `or curSize >= fileSize` condition is superfluos
+    -- rename the log file
+    local backupFileName = fileName:sub(1, -5) .. ".1.log"
+    local backupFilePath = "VPOS:" .. backupFileName
+    local ok, frOk, frErr = pcall(file_rename, filePath, backupFilePath, true)
+    if not ok then -- the log file wasn't renamed, `frOk` is `pcall`s error message here
+      devMsg = "Can't rename file " .. fileName .. " to " .. backupFilePath
+      if curSize >= fileSize then logDev(devMsg, frOk) else logDebug(devMsg .. ": " .. frOk) end
+    elseif not frOk then -- the log file wasn't renamed
+      devMsg = "Can't rename file " .. fileName .. " to " .. backupFilePath
+      if curSize >= fileSize then logDev(devMsg, frErr) else logDebug(devMsg .. ": " .. frErr) end
+
+      --NOTE: for all below code, we don't need to check if `UploadingLogFile.fileName`
+      -- exists (is non-nil), because checking equality against a valid string won't
+      -- raise an error, but will return false as expected!
+
+      -- delete the log file and reset the uploading log file
+      if (deleteLogFile(filePath, true)) and UploadingLogFile.fileName == fileName then
+        UploadingLogFile = {}
+      end
+    else -- the log file was successfully renamed
+      if UploadingLogFile.fileName == fileName then -- update file name of uploading log file
+        UploadingLogFile.fileName = backupFileName
+      elseif UploadingLogFile.fileName == backupFileName then -- reset the uploading log file
+        UploadingLogFile = {}
+      end
+    end
+
+    -- write a new log file
+    fh, errMsg = io.open(filePath, "w")
+    if not fh then
+      error("Can't open file " .. fileName .. " in W mode: " .. errMsg)
+    elseif UploadingLogFile.fileName == fileName then -- reset the uploading log file
+      UploadingLogFile = {}
+    end
+  end
+
+  return {fh = fh, size = logSize, scriptBaseName = scriptBaseName}
+end
+
+--#endregion **********
+
+
 --#region Script metadata functions **********
 
 --- Reads the queue from the script metadata, indexed by "key" key.
@@ -472,6 +663,160 @@ end
 function clearMD()
   eraseQueue(LogList)
   writeMD(LogList)
+end
+
+--#endregion **********
+
+
+--#region Log message functions **********
+
+--- Decomposes/Unformats an offline message string/line into its parts, owning to the
+--- logger script.<br/>
+--- Raises an error if the message can't be decomposed or a message part can't be converted.
+---@param str string The message string/line
+---@return table # A table with all of the message string parts:
+---  * `scriptName` string: the script name, which originally logged this message 
+---  * `sendingIsoDate` string: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
+---  * `messageLevel` string: defaulted as `logLevel.Info`
+---  * `messageBody` string: the actual message content
+local function decomposeLoggerOfflineMessageString(str)
+  assertAndOrLog(str)
+
+  local scriptName, sendingIsoDate, messageBody = str:match("^(%S+)%s+(%S+)%s+(.-)\r?\n$")
+  if not scriptName then error("Can't decompose logger offline message string") end
+
+  return {
+    scriptName = scriptName, sendingIsoDate = sendingIsoDate, messageLevel = logLevel.Info,
+    messageBody = messageBody,
+  }
+end
+
+--- Decomposes/Unformats an offline message string/line into its parts.<br/>
+--- Raises an error if a message part can't be determined or converted.
+---@param str string The message string/line
+---@return table # A table with all of the message string parts:
+---  * `sendingIsoDate` string: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
+---  * `messageLevel` string: the log level
+---  * `qLast`, `qFirst` integer: the original queue boundary indexes
+---  * `messageBody` string: the actual message content
+local function decomposeOfflineMessageString(str)
+  assertAndOrLog(str)
+
+  local sendingIsoDate, messageLevel, qLastStr, qFirstStr, messageBody =
+    str:match("^(%S+) %[(%S+)%] >> ([+-]?%d+):([+-]?%d+) (.-)\r?\n$")
+  if not sendingIsoDate then error("Can't decompose offline message string") end
+
+  local qLast = tonumber(qLastStr)
+  if not qLast then error("Can't convert queue last index to number") end
+  local qFirst = tonumber(qFirstStr)
+  if not qFirst then error("Can't convert queue first index to number") end
+
+  return {
+    sendingIsoDate = sendingIsoDate, messageLevel = messageLevel,
+    qLast = qLast, qFirst = qFirst, messageBody = messageBody,
+  }
+end
+
+--- Formats the message by adding information about the script and POS terminal.
+--- @param message table Message containing the needed information
+--- @param fallback boolean `true` if called due to fallback
+--- @return string outStr Log message to send
+function formatMessage(message, fallback)
+  local outStr = ""
+
+  if message.logType == LogType.ONLINE and not fallback then
+    local scriptVersion = vpos.tables.Table(806):getData(message.scriptName, 15)
+    scriptVersion = tostring((scriptVersion ~= nil and scriptVersion ~= "" and scriptVersion) or 0)
+    local scriptData = string.format("%s_v:%s", message.scriptName, scriptVersion)
+    local trace = (message.messageLevel == logLevel.Trace and "[trace] ") or ""
+
+    outStr = "<" .. message.priority .. ">1 " .. message.datetime .. " " .. COMP_NAME .. POS_NAME ..
+             " " .. scriptData .. " - - - " .. trace ..
+             math.abs(message.qLast) .. ":" .. math.abs(message.qFirst) .. " " .. message.message .. "\n"
+  elseif message.scriptName == LOGGER_SCRIPT_NAME then
+    outStr = LOGGER_SCRIPT_NAME .. " " .. message.datetime .. " " .. message.message .. "\n"
+  else
+    outStr = message.datetime .. " [" .. message.messageLevel .. "] >> " ..
+             math.abs(message.qLast) .. ":" .. math.abs(message.qFirst) .. " " .. message.message .. "\n"
+  end
+
+  return outStr
+end
+
+--- Renews the log socket after several logs were written to file or succesfully sent
+--- online.
+---@param url string The URL to the online logging location
+local function renewLogSocket(url)
+  local wasSocketValid = (LogSocket ~= nil)
+  local offlineCntr, onlineCntr = OfflineCounter, OnlineCounter
+
+  if (not LogSocket and offlineCntr == 0) or
+     offlineCntr >= OFFLINE_COUNT_FOR_SOCKET_RENEWING or
+     onlineCntr  >= ONLINE_COUNT_FOR_SOCKET_RENEWING then
+    local logUrl = url:gsub("http://", "")
+    local address, port = logUrl:match("(.-):(%d+)")
+    assertAndOrLog(address and port)
+    LogSocket = vpos.communication.Socket(address, port, 3000)
+    OfflineCounter = 0
+    OnlineCounter  = 0
+  end
+
+  if (wasSocketValid and not LogSocket) and
+     offlineCntr <  OFFLINE_COUNT_FOR_SOCKET_RENEWING and
+     onlineCntr  >= ONLINE_COUNT_FOR_SOCKET_RENEWING and
+     not isQueueEmpty(LogList) then
+    local qMax, qCur = math.abs(LogList.first), math.abs(LogList.last)
+    local qPrev = qCur - ONLINE_COUNT_FOR_SOCKET_RENEWING - 1
+    if qPrev < 1 then qPrev = 1 end
+    if qCur > qPrev then
+      logDev(string.format(
+        "Possibly lost %d messages @ Q %d-%d:%d ", qCur - qPrev, qPrev, qCur - 1, qMax),
+        "Connection went down unnoticed")
+    end
+  end
+end
+
+--- Sends the message to be logged using sockets over the internet (online mode). If
+--- this fails or is explicitly requested, writes the message to a file (offline mode).
+---
+--- RAISES an error if falling back to file and the log file can't be opened!
+---@param message table Message table containing the information to be logged
+function sendMessage(message)
+  local ok, outStr = pcall(formatMessage, message)
+  assert(ok, outStr)
+  if not ok then
+    outStr = "<11>1 " .. dateISO() .. " " .. COMP_NAME .. POS_NAME ..
+             " logger.vsp - - - ________PCALL error:" .. tostring(outStr) .. "\n"
+  end
+
+  local fallbackToFile = false
+  if message.logType == LogType.ONLINE and message.url then
+    renewLogSocket(message.url)
+
+    local sent = LogSocket and LogSocket:write(outStr)
+    if sent then
+      OnlineCounter = OnlineCounter + 1
+    else
+      fallbackToFile = true
+      OfflineCounter = OfflineCounter + 1
+      ok, outStr = pcall(formatMessage, message, true)
+      assert(ok, outStr)
+    end
+  else
+    fallbackToFile = true
+  end
+
+  if fallbackToFile then
+    local scriptBaseName = get_base_file_name_from_name(message.scriptName)
+    if not LogFile or LogFile.size() >= message.logSize or
+       scriptBaseName ~= LogFile.scriptBaseName then
+      if LogFile then assertAndOrLog(LogFile.fh); LogFile.fh:close() end
+      LogFile = getLogFile(message.scriptName, message.logSize)
+      logDebug("Got %s.log file with current size %.2f KB", LogFile.scriptBaseName, LogFile.size())
+    end
+    LogFile.fh:write(outStr)
+    LogFile.fh:flush()
+  end
 end
 
 --#endregion **********
@@ -671,351 +1016,6 @@ function handleQueue(q)
         end
       end
     end
-  end
-end
-
---#endregion **********
-
-
---#region File functions **********
-
---- Gets the file extension without the leading `.` dot character, from the file
---- name (without a path).<br/>
---- NOTE: Only letters are considered as an extension!
----@param fileName string? The file name (without a path)
----@return string? # The file extension on successful extraction, otherwise `nil`
-local function get_file_extension_from_name(fileName)
-  if not fileName then return nil end
-
-  local i, _ = fileName:find("%.%a*$")
-  return ((not i or (i == 1)) and "") or fileName:sub(i + 1)
-end
-
---- Gets the base file name, namely the file name without the extension, from the
---- file name (without a path).<br/>
---- NOTE: Only letters are considered as an extension!
----@param fileName string? The file name (without a path)
----@return string? # The base file name on successful extraction, otherwise `nil`
-local function get_base_file_name_from_name(fileName)
-  if not fileName then return nil end
-
-  local i, _ = fileName:find("%.%a*$")
-  return ((not i or (i == 1)) and fileName) or fileName:sub(1, i - 1)
-end
-
-local function removeLogBackupSuffixFromBaseFileName(baseFileName)
-  if not baseFileName then return nil end
-
-  local i, _ = baseFileName:find("%.1$")
-  return ((not i or (i == 1)) and baseFileName) or baseFileName:sub(1, i - 1)
-end
-
-local function getBaseFileNameWithoutLogBackupSuffixFromName(fileName)
-  if not fileName then return nil end
-
-  local baseFileName = get_base_file_name_from_name(fileName)
-  return removeLogBackupSuffixFromBaseFileName(baseFileName)
-end
-
---- Constants defining which file hosts are allowed.<br/>
---NOTE: defining this here, because it's exclusively used in the next function
-local AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = false}
-
---- Checks for the existance of the file.
----@param fn string The file name/path to be checked
----@param host string? The file host; defaults to "VPOS" if `nil` and a host can't be extracted from `fn`
----@return boolean `true` if the file exists, otherwise `false` <br/>
----@see AllowedFileHosts
-local function file_exists(fn, host)
-  if not fn then return false end
-
-  local i, j = string.find(fn, ":", 1, true)
-  local fileHost
-  if i then
-    fileHost = fn:sub(1, j-1)
-    fn = fn:gsub("VPOS:", "")
-    fn = fn:gsub("FILE:", "")
-  end
-
-  host = host or fileHost or "VPOS"
-  if not AllowedFileHosts[host] then return false end
-
-  local files = vpos.file.getFileList(host)
-  for _, name in pairs(files) do
-    if fn == name then
-      return true
-    end
-  end
-  return false
-end
-
---- Moves/Renames a file.
----@param fn1 string The source file name/path
----@param fn2 string The destination file name/path
----@param overwrite boolean Flag to overwrite an existing destination file
----@return boolean # `true` if moving/renaming succeeded, otherwise `false`
----@return string|number? # `nil` on success, otherwise an error message or number
-local function file_rename(fn1, fn2, overwrite)
-  if not file_exists(fn1) then
-    return false, string.format("Source file %s is missing!", fn1 or "")
-  end
-  if file_exists(fn2) and not overwrite then
-    return false, string.format("Destination file %s already exists!", fn2)
-  end
-
-  local ok, err = vpos.renameFile(fn1, fn2)
-  -- if the error is DestinationFileExists and we have to overwrite
-  if not ok and err == 1 and overwrite then
-    ok, err = vpos.file.delete(fn2)
-    ok, err = vpos.renameFile(fn1, fn2)
-    return ok, err
-  end
-  return ok, err
-end
-
---- Gets the file size as a script, by interogating VPOS.
----@param filePath string? The file path
----@return number # The file size on success, otherwise `-1`
-local function get_file_size_as_script(filePath)
-  if not filePath then return -1 end
-
-  local fileAsScript = vpos.script.Script(filePath)
-  return (fileAsScript and tonumber(fileAsScript:getSize())) or -1
-end
-
---- Delete the given log file.
----@param filePath string The log file path
----@param logErrors boolean Flag for logging any encountered error
----@return boolean ok `true` if the file deletion succeeded, otherwise `false`
----@return number errNo A `vpos.file.Error` number
-local function deleteLogFile(filePath, logErrors)
-  assertAndOrLog(filePath)
-  local ok, errNo = vpos.file.delete(filePath)
-  if logErrors and not ok then logDev("Can't delete file " .. filePath, errNo) end
-  return ok, errNo
-end
-
---- Creates or opens a log file for writing, having the script's base name and extension
---- ".log".
----
---- RAISES an error if the log file can't be created or opened!
----@param scriptName string The script name
----@param logSizeInKB number? The maximum log size in kilobytes before creating a new file
----@return table # A table containing:
---- * `fh` userdata/file*: the log file handler
---- * `size` function: gets the current log size
---- * `scriptBaseName` string: the script base name
-function getLogFile(scriptName, logSizeInKB)
-  assertAndOrLog(scriptName)
-  local fileSize = logSizeInKB or 300
-  local scriptBaseName = get_base_file_name_from_name(scriptName)
-  local fileName = tostring(scriptBaseName or "log") .. ".log"
-  local filePath = "VPOS:" .. fileName
-
-  local logSize = function()
-      local logSize = get_file_size_as_script(filePath)
-      return (logSize <= 0 and 0) or (logSize / 1000)
-    end
-
-  local curSize = logSize()
-  local fh, errMsg, devMsg
-  if curSize < fileSize then
-    fh, errMsg = io.open(filePath, "a+")
-    assert(fh, errMsg)
-    if not fh then logDev("Can't open file " .. fileName .. " in A+ mode", errMsg) end
-  end
-   -- roll over the log file
-  if not fh then -- an `or curSize >= fileSize` condition is superfluos
-    -- rename the log file
-    local backupFileName = fileName:sub(1, -5) .. ".1.log"
-    local backupFilePath = "VPOS:" .. backupFileName
-    local ok, frOk, frErr = pcall(file_rename, filePath, backupFilePath, true)
-    if not ok then -- the log file wasn't renamed, `frOk` is `pcall`s error message here
-      devMsg = "Can't rename file " .. fileName .. " to " .. backupFilePath
-      if curSize >= fileSize then logDev(devMsg, frOk) else logDebug(devMsg .. ": " .. frOk) end
-    elseif not frOk then -- the log file wasn't renamed
-      devMsg = "Can't rename file " .. fileName .. " to " .. backupFilePath
-      if curSize >= fileSize then logDev(devMsg, frErr) else logDebug(devMsg .. ": " .. frErr) end
-
-      --NOTE: for all below code, we don't need to check if `UploadingLogFile.fileName`
-      -- exists (is non-nil), because checking equality against a valid string won't
-      -- raise an error, but will return false as expected!
-
-      -- delete the log file and reset the uploading log file
-      if (deleteLogFile(filePath, true)) and UploadingLogFile.fileName == fileName then
-        UploadingLogFile = {}
-      end
-    else -- the log file was successfully renamed
-      if UploadingLogFile.fileName == fileName then -- update file name of uploading log file
-        UploadingLogFile.fileName = backupFileName
-      elseif UploadingLogFile.fileName == backupFileName then -- reset the uploading log file
-        UploadingLogFile = {}
-      end
-    end
-
-    -- write a new log file
-    fh, errMsg = io.open(filePath, "w")
-    if not fh then
-      error("Can't open file " .. fileName .. " in W mode: " .. errMsg)
-    elseif UploadingLogFile.fileName == fileName then -- reset the uploading log file
-      UploadingLogFile = {}
-    end
-  end
-
-  return {fh = fh, size = logSize, scriptBaseName = scriptBaseName}
-end
-
---#endregion **********
-
-
---#region Log message functions **********
-
---- Decomposes/Unformats an offline message string/line into its parts, owning to the
---- logger script.<br/>
---- Raises an error if the message can't be decomposed or a message part can't be converted.
----@param str string The message string/line
----@return table # A table with all of the message string parts:
----  * `scriptName` string: the script name, which originally logged this message 
----  * `sendingIsoDate` string: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
----  * `messageLevel` string: defaulted as `logLevel.Info`
----  * `messageBody` string: the actual message content
-local function decomposeLoggerOfflineMessageString(str)
-  assertAndOrLog(str)
-
-  local scriptName, sendingIsoDate, messageBody = str:match("^(%S+)%s+(%S+)%s+(.-)\r?\n$")
-  if not scriptName then error("Can't decompose logger offline message string") end
-
-  return {
-    scriptName = scriptName, sendingIsoDate = sendingIsoDate, messageLevel = logLevel.Info,
-    messageBody = messageBody,
-  }
-end
-
---- Decomposes/Unformats an offline message string/line into its parts.<br/>
---- Raises an error if a message part can't be determined or converted.
----@param str string The message string/line
----@return table # A table with all of the message string parts:
----  * `sendingIsoDate` string: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
----  * `messageLevel` string: the log level
----  * `qLast`, `qFirst` integer: the original queue boundary indexes
----  * `messageBody` string: the actual message content
-local function decomposeOfflineMessageString(str)
-  assertAndOrLog(str)
-
-  local sendingIsoDate, messageLevel, qLastStr, qFirstStr, messageBody =
-    str:match("^(%S+) %[(%S+)%] >> ([+-]?%d+):([+-]?%d+) (.-)\r?\n$")
-  if not sendingIsoDate then error("Can't decompose offline message string") end
-
-  local qLast = tonumber(qLastStr)
-  if not qLast then error("Can't convert queue last index to number") end
-  local qFirst = tonumber(qFirstStr)
-  if not qFirst then error("Can't convert queue first index to number") end
-
-  return {
-    sendingIsoDate = sendingIsoDate, messageLevel = messageLevel,
-    qLast = qLast, qFirst = qFirst, messageBody = messageBody,
-  }
-end
-
---- Formats the message by adding information about the script and POS terminal.
---- @param message table Message containing the needed information
---- @param fallback boolean `true` if called due to fallback
---- @return string outStr Log message to send
-function formatMessage(message, fallback)
-  local outStr = ""
-
-  if message.logType == LogType.ONLINE and not fallback then
-    local scriptVersion = vpos.tables.Table(806):getData(message.scriptName, 15)
-    scriptVersion = tostring((scriptVersion ~= nil and scriptVersion ~= "" and scriptVersion) or 0)
-    local scriptData = string.format("%s_v:%s", message.scriptName, scriptVersion)
-    local trace = (message.messageLevel == logLevel.Trace and "[trace] ") or ""
-
-    outStr = "<" .. message.priority .. ">1 " .. message.datetime .. " " .. COMP_NAME .. POS_NAME ..
-             " " .. scriptData .. " - - - " .. trace ..
-             math.abs(message.qLast) .. ":" .. math.abs(message.qFirst) .. " " .. message.message .. "\n"
-  elseif message.scriptName == LOGGER_SCRIPT_NAME then
-    outStr = LOGGER_SCRIPT_NAME .. " " .. message.datetime .. " " .. message.message .. "\n"
-  else
-    outStr = message.datetime .. " [" .. message.messageLevel .. "] >> " ..
-             math.abs(message.qLast) .. ":" .. math.abs(message.qFirst) .. " " .. message.message .. "\n"
-  end
-
-  return outStr
-end
-
---- Renews the log socket after several logs were written to file or succesfully sent
---- online.
----@param url string The URL to the online logging location
-local function renewLogSocket(url)
-  local wasSocketValid = (LogSocket ~= nil)
-  local offlineCntr, onlineCntr = OfflineCounter, OnlineCounter
-
-  if (not LogSocket and offlineCntr == 0) or
-     offlineCntr >= OFFLINE_COUNT_FOR_SOCKET_RENEWING or
-     onlineCntr  >= ONLINE_COUNT_FOR_SOCKET_RENEWING then
-    local logUrl = url:gsub("http://", "")
-    local address, port = logUrl:match("(.-):(%d+)")
-    assertAndOrLog(address and port)
-    LogSocket = vpos.communication.Socket(address, port, 3000)
-    OfflineCounter = 0
-    OnlineCounter  = 0
-  end
-
-  if (wasSocketValid and not LogSocket) and
-     offlineCntr <  OFFLINE_COUNT_FOR_SOCKET_RENEWING and
-     onlineCntr  >= ONLINE_COUNT_FOR_SOCKET_RENEWING and
-     not isQueueEmpty(LogList) then
-    local qMax, qCur = math.abs(LogList.first), math.abs(LogList.last)
-    local qPrev = qCur - ONLINE_COUNT_FOR_SOCKET_RENEWING - 1
-    if qPrev < 1 then qPrev = 1 end
-    if qCur > qPrev then
-      logDev(string.format(
-        "Possibly lost %d messages @ Q %d-%d:%d ", qCur - qPrev, qPrev, qCur - 1, qMax),
-        "Connection went down unnoticed")
-    end
-  end
-end
-
---- Sends the message to be logged using sockets over the internet (online mode). If
---- this fails or is explicitly requested, writes the message to a file (offline mode).
----
---- RAISES an error if falling back to file and the log file can't be opened!
----@param message table Message table containing the information to be logged
-function sendMessage(message)
-  local ok, outStr = pcall(formatMessage, message)
-  assert(ok, outStr)
-  if not ok then
-    outStr = "<11>1 " .. dateISO() .. " " .. COMP_NAME .. POS_NAME ..
-             " logger.vsp - - - ________PCALL error:" .. tostring(outStr) .. "\n"
-  end
-
-  local fallbackToFile = false
-  if message.logType == LogType.ONLINE and message.url then
-    renewLogSocket(message.url)
-
-    local sent = LogSocket and LogSocket:write(outStr)
-    if sent then
-      OnlineCounter = OnlineCounter + 1
-    else
-      fallbackToFile = true
-      OfflineCounter = OfflineCounter + 1
-      ok, outStr = pcall(formatMessage, message, true)
-      assert(ok, outStr)
-    end
-  else
-    fallbackToFile = true
-  end
-
-  if fallbackToFile then
-    local scriptBaseName = get_base_file_name_from_name(message.scriptName)
-    if not LogFile or LogFile.size() >= message.logSize or
-       scriptBaseName ~= LogFile.scriptBaseName then
-      if LogFile then assertAndOrLog(LogFile.fh); LogFile.fh:close() end
-      LogFile = getLogFile(message.scriptName, message.logSize)
-      logDebug("Got %s.log file with current size %.2f KB", LogFile.scriptBaseName, LogFile.size())
-    end
-    LogFile.fh:write(outStr)
-    LogFile.fh:flush()
   end
 end
 
